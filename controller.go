@@ -18,9 +18,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -408,8 +406,39 @@ func (c *Controller) handleWGAdded(obj interface{}) {
 		logger.Error(err, "Error getting wgi object", "object", klog.KObj(object))
 		return
 	}
-	logger.V(4).Info("Wgi object", "object", klog.KObj(wgObj))
-	json.NewEncoder(os.Stdout).Encode(wgObj)
+
+	nodeName := wgObj.Spec.Node
+	moveToContainer := wgObj.Spec.MoveToContainer
+	dockerContainer := ""
+	if wgObj.Spec.Container != nil {
+		dockerContainer = wgObj.Spec.Container.Docker.Name
+	}
+	interfaceName := wgObj.Spec.InterfaceName
+	privateKeySecName := ""
+	privateKeySecFieldName := "key"
+	privateKeySecNS := "default"
+	if wgObj.Spec.PrivateKeySecretRef != nil {
+		privateKeySecName = wgObj.Spec.PrivateKeySecretRef.Name
+		if wgObj.Spec.PrivateKeySecretRef.Key != "" {
+			privateKeySecFieldName = wgObj.Spec.PrivateKeySecretRef.Key
+		}
+		if wgObj.Spec.PrivateKeySecretRef.Namespace != nil {
+			privateKeySecNS = *wgObj.Spec.PrivateKeySecretRef.Namespace
+		}
+	}
+
+	addresses := wgObj.Spec.Addresses
+	listenPort := wgObj.Spec.ListenPort
+
+	fmt.Println("NodeName: ", nodeName)
+	fmt.Println("MoveToContainer: ", moveToContainer)
+	fmt.Println("DockerContainer: ", dockerContainer)
+	fmt.Println("InterfaceName: ", interfaceName)
+	fmt.Println("PrivateKeySecName: ", privateKeySecName)
+	fmt.Println("PrivateKeySecFieldName: ", privateKeySecFieldName)
+	fmt.Println("PrivateKeySecNS: ", privateKeySecNS)
+	fmt.Println("Addresses: ", addresses)
+	fmt.Println("ListenPort: ", listenPort)
 }
 
 func (c *Controller) handleWGDeleted(obj interface{}) {

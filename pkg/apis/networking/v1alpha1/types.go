@@ -67,7 +67,7 @@ type WireGuardInterfaceSpec struct {
 	MoveToContainer       bool                             `json:"moveToContainer"`
 	Container             *WireGuardInterfaceContainerSpec `json:"container,omitempty"`
 	InterfaceName         string                           `json:"interfaceName"`
-	PrivateKeySecretRef   PrivateKeySecretRef              `json:"privateKeySecretRef"`
+	PrivateKeySecretRef   *PrivateKeySecretRef              `json:"privateKeySecretRef,omitempty"`
 	PresharedKeySecretRef *PrivateKeySecretRef             `json:"presharedKeySecretRef,omitempty"`
 	Addresses             []WireGuardInterfaceAddressSpec  `json:"addresses"`
 	ListenPort            int                              `json:"listenPort"`

@@ -241,7 +241,11 @@ func (in *WireGuardInterfaceSpec) DeepCopyInto(out *WireGuardInterfaceSpec) {
 		*out = new(WireGuardInterfaceContainerSpec)
 		(*in).DeepCopyInto(*out)
 	}
-	in.PrivateKeySecretRef.DeepCopyInto(&out.PrivateKeySecretRef)
+	if in.PrivateKeySecretRef != nil {
+		in, out := &in.PrivateKeySecretRef, &out.PrivateKeySecretRef
+		*out = new(PrivateKeySecretRef)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.PresharedKeySecretRef != nil {
 		in, out := &in.PresharedKeySecretRef, &out.PresharedKeySecretRef
 		*out = new(PrivateKeySecretRef)
