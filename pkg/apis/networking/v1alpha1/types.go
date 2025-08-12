@@ -29,8 +29,8 @@ type WireGuardInterface struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   WireGuardInterfaceSpec `json:"spec"`
-	Status FooStatus              `json:"status"`
+	Spec   WireGuardInterfaceSpec   `json:"spec"`
+	Status WireGuardInterfaceStatus `json:"status"`
 }
 
 type PrivateKeySecretRef struct {
@@ -39,11 +39,11 @@ type PrivateKeySecretRef struct {
 }
 
 type WireGuardPeerSpec struct {
-	PublicKey             string              `json:"publicKey"`
-	PresharedKeySecretRef PrivateKeySecretRef `json:"presharedKeySecretRef"`
-	AllowedIPs            []string            `json:"allowedIPs"`
-	Endpoint              string              `json:"endpoint"`
-	PersistentKeepalive   *int                `json:"persistentKeepalive,omitempty"`
+	PublicKey             string               `json:"publicKey"`
+	PresharedKeySecretRef *PrivateKeySecretRef `json:"presharedKeySecretRef,omitempty"`
+	AllowedIPs            []string             `json:"allowedIPs,omitempty"`
+	Endpoint              string               `json:"endpoint,omitempty"`
+	PersistentKeepalive   *int                 `json:"persistentKeepalive,omitempty"`
 }
 
 type WireGuardInterfaceContainerNetNSSpec struct {
@@ -62,30 +62,46 @@ type WireGuardInterfaceContainerSpec struct {
 
 // WireGuardInterfaceSpec is the spec for a WireGuardInterface resource
 type WireGuardInterfaceSpec struct {
-	Node                string                           `json:"node"`
-	MoveToContainer     bool                             `json:"moveToContainer"`
-	Container           *WireGuardInterfaceContainerSpec `json:"container,omitempty"`
-	InterfaceName       string                           `json:"interfaceName"`
-	PrivateKeySecretRef PrivateKeySecretRef              `json:"privateKeySecretRef"`
-	Address             []string                         `json:"address"`
-	ListenPort          int                              `json:"listenPort"`
-	MTU                 int                              `json:"mtu"`
-	Peers               []WireGuardPeerSpec              `json:"peers"`
+	Node                  string                           `json:"node"`
+	MoveToContainer       bool                             `json:"moveToContainer"`
+	Container             *WireGuardInterfaceContainerSpec `json:"container,omitempty"`
+	InterfaceName         string                           `json:"interfaceName"`
+	PrivateKeySecretRef   PrivateKeySecretRef              `json:"privateKeySecretRef"`
+	PresharedKeySecretRef *PrivateKeySecretRef             `json:"presharedKeySecretRef,omitempty"`
+	Addresses             []WireGuardInterfaceAddressSpec  `json:"addresses"`
+	ListenPort            int                              `json:"listenPort"`
+	MTU                   int                              `json:"mtu"`
+	Peers                 []WireGuardPeerSpec              `json:"peers"`
+}
+
+type WireGuardInterfaceAddressSpec struct {
+	Family        string `json:"family"`
+	Local         string `json:"local"`
+	Peer          string `json:"peer"`
+	Prefixlen     int    `json:"prefixlen"`
+	NoPrefixRoute bool   `json:"noPrefixRoute"`
+}
+
+type NetlinkInterfaceAddressStatus struct {
+	Family    string  `json:"family"`
+	Local     string  `json:"local"`
+	Address   *string `json:"address,omitempty"`
+	Prefixlen int     `json:"prefixlen"`
 }
 
 type PeerStatus struct {
-	PublicKey       string `json:"publicKey"`
-	LatestHandshake string `json:"latestHandshake"`
-	TransferRx      int64  `json:"transferRx"`
-	TransferTx      int64  `json:"transferTx"`
+	PublicKey       string  `json:"publicKey"`
+	PresharedKey    *string `json:"presharedKey,omitempty"`
+	LatestHandshake *int64  `json:"latestHandshake,omitempty"`
+	Endpoint        *string `json:"endpoint,omitempty"`
 }
 
-// FooStatus is the status for a WireGuardInterface resource
-type FooStatus struct {
-	PublicKey      string       `json:"publicKey"`
-	InterfaceState string       `json:"interfaceState"`
-	LastSyncTime   string       `json:"lastSyncTime"`
-	Peers          []PeerStatus `json:"peers"`
+type WireGuardInterfaceStatus struct {
+	PublicKey    string                          `json:"publicKey"`
+	PresharedKey *string                         `json:"presharedKey,omitempty"`
+	ListenPort   *int                            `json:"listenPort,omitempty"`
+	Peers        []PeerStatus                    `json:"peers"`
+	Addresses    []NetlinkInterfaceAddressStatus `json:"addresses"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
