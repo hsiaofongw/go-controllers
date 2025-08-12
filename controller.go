@@ -45,6 +45,7 @@ import (
 	idkinformers "k8s.io/sample-controller/pkg/generated/informers/externalversions/idontknow/v1alpha1"
 	wginformers "k8s.io/sample-controller/pkg/generated/informers/externalversions/networking/v1alpha1"
 	informers "k8s.io/sample-controller/pkg/generated/informers/externalversions/samplecontroller/v1alpha1"
+	wglister "k8s.io/sample-controller/pkg/generated/listers/networking/v1alpha1"
 	listers "k8s.io/sample-controller/pkg/generated/listers/samplecontroller/v1alpha1"
 )
 
@@ -77,9 +78,11 @@ type Controller struct {
 	deploymentsLister appslisters.DeploymentLister
 	deploymentsSynced cache.InformerSynced
 	foosLister        listers.FooLister
-	foosSynced        cache.InformerSynced
-	idkSynced         cache.InformerSynced
-	wgSynced          cache.InformerSynced
+	wgLister          wglister.WireGuardInterfaceLister
+
+	foosSynced cache.InformerSynced
+	idkSynced  cache.InformerSynced
+	wgSynced   cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -125,6 +128,7 @@ func NewController(
 		deploymentsLister: deploymentInformer.Lister(),
 		deploymentsSynced: deploymentInformer.Informer().HasSynced,
 		foosLister:        fooInformer.Lister(),
+		wgLister:          wgInformer.Lister(),
 		foosSynced:        fooInformer.Informer().HasSynced,
 		idkSynced:         idkInformer.Informer().HasSynced,
 		wgSynced:          wgInformer.Informer().HasSynced,
@@ -162,14 +166,7 @@ func NewController(
 	})
 
 	wgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			k, err := cache.ObjectToName(obj)
-			if err != nil {
-				logger.Error(err, "Error converting object to name", "object", obj)
-				return
-			}
-			logger.V(4).Info("wg", "add", "key", k)
-		},
+		AddFunc: controller.handleWGObject,
 		UpdateFunc: func(old, new interface{}) {
 			k, err := cache.ObjectToName(new)
 			if err != nil {
@@ -178,14 +175,7 @@ func NewController(
 			}
 			logger.V(4).Info("wg", "update", "key", k)
 		},
-		DeleteFunc: func(obj interface{}) {
-			k, err := cache.ObjectToName(obj)
-			if err != nil {
-				logger.Error(err, "Error converting object to name", "object", obj)
-				return
-			}
-			logger.V(4).Info("wg", "delete", "key", k)
-		},
+		DeleteFunc: controller.handleWGObject,
 	})
 
 	// Set up an event handler for when Foo resources change
@@ -398,6 +388,15 @@ func (c *Controller) enqueueFoo(obj interface{}) {
 		return
 	} else {
 		c.workqueue.Add(objectRef)
+	}
+}
+
+func (c *Controller) handleWGObject(obj interface{}) {
+	var object metav1.Object
+	logger := klog.FromContext(context.Background())
+	logger.V(4).Info("Processing wgi object", "object", klog.KObj(object))
+	if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		logger.V(4).Info("Wgi object deleted", "key", tombstone.Key)
 	}
 }
 
