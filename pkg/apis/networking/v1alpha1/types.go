@@ -34,8 +34,9 @@ type WireGuardInterface struct {
 }
 
 type PrivateKeySecretRef struct {
-	Name string `json:"name"`
-	Key  string `json:"key"`
+	Name      string  `json:"name"`
+	Key       string  `json:"key"`
+	Namespace *string `json:"namespace,omitempty"`
 }
 
 type WireGuardPeerSpec struct {
