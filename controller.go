@@ -30,10 +30,12 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	appsinformers "k8s.io/client-go/informers/apps/v1"
+	secretsinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	appslisters "k8s.io/client-go/listers/apps/v1"
+	secretlisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -76,14 +78,16 @@ type Controller struct {
 	// sampleclientset is a clientset for our own API group
 	sampleclientset clientset.Interface
 
+	secretsLister     secretlisters.SecretLister
 	deploymentsLister appslisters.DeploymentLister
 	deploymentsSynced cache.InformerSynced
 	foosLister        listers.FooLister
 	wgLister          wglister.WireGuardInterfaceLister
 
-	foosSynced cache.InformerSynced
-	idkSynced  cache.InformerSynced
-	wgSynced   cache.InformerSynced
+	foosSynced    cache.InformerSynced
+	idkSynced     cache.InformerSynced
+	wgSynced      cache.InformerSynced
+	secretsSynced cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -105,6 +109,7 @@ func NewController(
 	fooInformer informers.FooInformer,
 	idkInformer idkinformers.IDontKnowInformer,
 	wgInformer wginformers.WireGuardInterfaceInformer,
+	secretsInformer secretsinformers.SecretInformer,
 ) *Controller {
 	logger := klog.FromContext(ctx)
 
@@ -130,41 +135,16 @@ func NewController(
 		deploymentsSynced: deploymentInformer.Informer().HasSynced,
 		foosLister:        fooInformer.Lister(),
 		wgLister:          wgInformer.Lister(),
+		secretsLister:     secretsInformer.Lister(),
 		foosSynced:        fooInformer.Informer().HasSynced,
 		idkSynced:         idkInformer.Informer().HasSynced,
 		wgSynced:          wgInformer.Informer().HasSynced,
+		secretsSynced:     secretsInformer.Informer().HasSynced,
 		workqueue:         workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:          recorder,
 	}
 
 	logger.Info("Setting up event handlers")
-
-	idkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			k, err := cache.ObjectToName(obj)
-			if err != nil {
-				logger.Error(err, "Error converting object to name", "object", obj)
-				return
-			}
-			logger.V(4).Info("add", "key", k)
-		},
-		UpdateFunc: func(old, new interface{}) {
-			k, err := cache.ObjectToName(new)
-			if err != nil {
-				logger.Error(err, "Error converting object to name", "object", new)
-				return
-			}
-			logger.V(4).Info("update", "key", k)
-		},
-		DeleteFunc: func(obj interface{}) {
-			k, err := cache.ObjectToName(obj)
-			if err != nil {
-				logger.Error(err, "Error converting object to name", "object", obj)
-				return
-			}
-			logger.V(4).Info("delete", "key", k)
-		},
-	})
 
 	wgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.handleWGAdded,
@@ -227,7 +207,13 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	// Wait for the caches to be synced before starting workers
 	logger.Info("Waiting for informer caches to sync")
 
-	if ok := cache.WaitForCacheSync(ctx.Done(), c.deploymentsSynced, c.foosSynced, c.idkSynced, c.wgSynced); !ok {
+	if ok := cache.WaitForCacheSync(ctx.Done(),
+		c.deploymentsSynced,
+		c.foosSynced,
+		c.idkSynced,
+		c.wgSynced,
+		c.secretsSynced,
+	); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
@@ -439,6 +425,14 @@ func (c *Controller) handleWGAdded(obj interface{}) {
 	fmt.Println("PrivateKeySecNS: ", privateKeySecNS)
 	fmt.Println("Addresses: ", addresses)
 	fmt.Println("ListenPort: ", listenPort)
+
+	secObj, err := c.secretsLister.Secrets(privateKeySecNS).Get(privateKeySecName)
+	if err != nil {
+		logger.Error(err, "Error getting secret object", "object", klog.KObj(object))
+		return
+	}
+
+	fmt.Println("Secret Object Name: ", secObj.Name)
 }
 
 func (c *Controller) handleWGDeleted(obj interface{}) {

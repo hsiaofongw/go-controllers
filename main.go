@@ -72,6 +72,7 @@ func main() {
 		exampleInformerFactory.Samplecontroller().V1alpha1().Foos(),
 		exampleInformerFactory.Idontknow().V1alpha1().IDontKnows(),
 		exampleInformerFactory.Networking().V1alpha1().WireGuardInterfaces(),
+		kubeInformerFactory.Core().V1().Secrets(),
 	)
 
 	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(ctx.done())
