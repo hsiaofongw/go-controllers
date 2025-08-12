@@ -39,6 +39,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
+	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	samplev1alpha1 "k8s.io/sample-controller/pkg/apis/samplecontroller/v1alpha1"
 	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
 	samplescheme "k8s.io/sample-controller/pkg/generated/clientset/versioned/scheme"
@@ -166,16 +167,18 @@ func NewController(
 	})
 
 	wgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.handleWGObject,
+		AddFunc: controller.handleWGAdded,
 		UpdateFunc: func(old, new interface{}) {
-			k, err := cache.ObjectToName(new)
-			if err != nil {
-				logger.Error(err, "Error converting object to name", "object", new)
+			newWgi := new.(*networkingv1alpha1.WireGuardInterface)
+			oldWgi := old.(*networkingv1alpha1.WireGuardInterface)
+			if newWgi.ResourceVersion == oldWgi.ResourceVersion {
+				// Periodic resync will send update events for all known WGIs.
+				// Two different versions of the same WGI will always have different RVs.
 				return
 			}
-			logger.V(4).Info("wg", "update", "key", k)
+			controller.handleWGUpdated(old, new)
 		},
-		DeleteFunc: controller.handleWGObject,
+		DeleteFunc: controller.handleWGDeleted,
 	})
 
 	// Set up an event handler for when Foo resources change
@@ -391,12 +394,30 @@ func (c *Controller) enqueueFoo(obj interface{}) {
 	}
 }
 
-func (c *Controller) handleWGObject(obj interface{}) {
+func (c *Controller) handleWGAdded(obj interface{}) {
 	var object metav1.Object
+	var ok bool
 	logger := klog.FromContext(context.Background())
-	logger.V(4).Info("Processing wgi object", "object", klog.KObj(object))
-	if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
-		logger.V(4).Info("Wgi object deleted", "key", tombstone.Key)
+	if object, ok = obj.(metav1.Object); ok {
+		logger.V(4).Info("Processing wgi object creation", "object", klog.KObj(object))
+	}
+}
+
+func (c *Controller) handleWGDeleted(obj interface{}) {
+	var object metav1.Object
+	var ok bool
+	logger := klog.FromContext(context.Background())
+	if object, ok = obj.(metav1.Object); ok {
+		logger.V(4).Info("Processing wgi object deletion", "object", klog.KObj(object))
+	}
+}
+
+func (c *Controller) handleWGUpdated(old, newObj interface{}) {
+	var object metav1.Object
+	var ok bool
+	logger := klog.FromContext(context.Background())
+	if object, ok = newObj.(metav1.Object); ok {
+		logger.V(4).Info("Processing wgi object update", "object", klog.KObj(object))
 	}
 }
 
