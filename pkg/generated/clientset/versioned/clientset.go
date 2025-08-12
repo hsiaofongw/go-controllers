@@ -25,18 +25,34 @@ import (
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
+	idontknowv1alpha1 "k8s.io/sample-controller/pkg/generated/clientset/versioned/typed/idontknow/v1alpha1"
+	networkingv1alpha1 "k8s.io/sample-controller/pkg/generated/clientset/versioned/typed/networking/v1alpha1"
 	samplecontrollerv1alpha1 "k8s.io/sample-controller/pkg/generated/clientset/versioned/typed/samplecontroller/v1alpha1"
 )
 
 type Interface interface {
 	Discovery() discovery.DiscoveryInterface
+	IdontknowV1alpha1() idontknowv1alpha1.IdontknowV1alpha1Interface
+	NetworkingV1alpha1() networkingv1alpha1.NetworkingV1alpha1Interface
 	SamplecontrollerV1alpha1() samplecontrollerv1alpha1.SamplecontrollerV1alpha1Interface
 }
 
 // Clientset contains the clients for groups.
 type Clientset struct {
 	*discovery.DiscoveryClient
+	idontknowV1alpha1        *idontknowv1alpha1.IdontknowV1alpha1Client
+	networkingV1alpha1       *networkingv1alpha1.NetworkingV1alpha1Client
 	samplecontrollerV1alpha1 *samplecontrollerv1alpha1.SamplecontrollerV1alpha1Client
+}
+
+// IdontknowV1alpha1 retrieves the IdontknowV1alpha1Client
+func (c *Clientset) IdontknowV1alpha1() idontknowv1alpha1.IdontknowV1alpha1Interface {
+	return c.idontknowV1alpha1
+}
+
+// NetworkingV1alpha1 retrieves the NetworkingV1alpha1Client
+func (c *Clientset) NetworkingV1alpha1() networkingv1alpha1.NetworkingV1alpha1Interface {
+	return c.networkingV1alpha1
 }
 
 // SamplecontrollerV1alpha1 retrieves the SamplecontrollerV1alpha1Client
@@ -88,6 +104,14 @@ func NewForConfigAndClient(c *rest.Config, httpClient *http.Client) (*Clientset,
 
 	var cs Clientset
 	var err error
+	cs.idontknowV1alpha1, err = idontknowv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
+	cs.networkingV1alpha1, err = networkingv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
 	cs.samplecontrollerV1alpha1, err = samplecontrollerv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
 	if err != nil {
 		return nil, err
@@ -113,6 +137,8 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 // New creates a new Clientset for the given RESTClient.
 func New(c rest.Interface) *Clientset {
 	var cs Clientset
+	cs.idontknowV1alpha1 = idontknowv1alpha1.New(c)
+	cs.networkingV1alpha1 = networkingv1alpha1.New(c)
 	cs.samplecontrollerV1alpha1 = samplecontrollerv1alpha1.New(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClient(c)

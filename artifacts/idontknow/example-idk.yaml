@@ -1,0 +1,7 @@
+apiVersion: idontknow.example.com/v1alpha1
+kind: IDontKnow
+metadata:
+  name: example-idk
+spec:
+  deploymentName: example-idk
+  replicas: 2

@@ -23,7 +23,9 @@ import (
 
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
-	v1alpha1 "k8s.io/sample-controller/pkg/apis/samplecontroller/v1alpha1"
+	v1alpha1 "k8s.io/sample-controller/pkg/apis/idontknow/v1alpha1"
+	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
+	samplecontrollerv1alpha1 "k8s.io/sample-controller/pkg/apis/samplecontroller/v1alpha1"
 )
 
 // GenericInformer is type of SharedIndexInformer which will locate and delegate to other
@@ -52,8 +54,16 @@ func (f *genericInformer) Lister() cache.GenericLister {
 // TODO extend this to unknown resources with a client pool
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
-	// Group=samplecontroller.k8s.io, Version=v1alpha1
-	case v1alpha1.SchemeGroupVersion.WithResource("foos"):
+	// Group=idontknow.example.com, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithResource("idontknows"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Idontknow().V1alpha1().IDontKnows().Informer()}, nil
+
+		// Group=networking.dn42.io, Version=v1alpha1
+	case networkingv1alpha1.SchemeGroupVersion.WithResource("wireguardinterfaces"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1alpha1().WireGuardInterfaces().Informer()}, nil
+
+		// Group=samplecontroller.k8s.io, Version=v1alpha1
+	case samplecontrollerv1alpha1.SchemeGroupVersion.WithResource("foos"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Samplecontroller().V1alpha1().Foos().Informer()}, nil
 
 	}

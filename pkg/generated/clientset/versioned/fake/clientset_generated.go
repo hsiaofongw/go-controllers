@@ -26,6 +26,10 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/testing"
 	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
+	idontknowv1alpha1 "k8s.io/sample-controller/pkg/generated/clientset/versioned/typed/idontknow/v1alpha1"
+	fakeidontknowv1alpha1 "k8s.io/sample-controller/pkg/generated/clientset/versioned/typed/idontknow/v1alpha1/fake"
+	networkingv1alpha1 "k8s.io/sample-controller/pkg/generated/clientset/versioned/typed/networking/v1alpha1"
+	fakenetworkingv1alpha1 "k8s.io/sample-controller/pkg/generated/clientset/versioned/typed/networking/v1alpha1/fake"
 	samplecontrollerv1alpha1 "k8s.io/sample-controller/pkg/generated/clientset/versioned/typed/samplecontroller/v1alpha1"
 	fakesamplecontrollerv1alpha1 "k8s.io/sample-controller/pkg/generated/clientset/versioned/typed/samplecontroller/v1alpha1/fake"
 )
@@ -87,6 +91,16 @@ var (
 	_ clientset.Interface = &Clientset{}
 	_ testing.FakeClient  = &Clientset{}
 )
+
+// IdontknowV1alpha1 retrieves the IdontknowV1alpha1Client
+func (c *Clientset) IdontknowV1alpha1() idontknowv1alpha1.IdontknowV1alpha1Interface {
+	return &fakeidontknowv1alpha1.FakeIdontknowV1alpha1{Fake: &c.Fake}
+}
+
+// NetworkingV1alpha1 retrieves the NetworkingV1alpha1Client
+func (c *Clientset) NetworkingV1alpha1() networkingv1alpha1.NetworkingV1alpha1Interface {
+	return &fakenetworkingv1alpha1.FakeNetworkingV1alpha1{Fake: &c.Fake}
+}
 
 // SamplecontrollerV1alpha1 retrieves the SamplecontrollerV1alpha1Client
 func (c *Clientset) SamplecontrollerV1alpha1() samplecontrollerv1alpha1.SamplecontrollerV1alpha1Interface {

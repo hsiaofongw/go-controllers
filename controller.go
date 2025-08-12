@@ -42,6 +42,8 @@ import (
 	samplev1alpha1 "k8s.io/sample-controller/pkg/apis/samplecontroller/v1alpha1"
 	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
 	samplescheme "k8s.io/sample-controller/pkg/generated/clientset/versioned/scheme"
+	idkinformers "k8s.io/sample-controller/pkg/generated/informers/externalversions/idontknow/v1alpha1"
+	wginformers "k8s.io/sample-controller/pkg/generated/informers/externalversions/networking/v1alpha1"
 	informers "k8s.io/sample-controller/pkg/generated/informers/externalversions/samplecontroller/v1alpha1"
 	listers "k8s.io/sample-controller/pkg/generated/listers/samplecontroller/v1alpha1"
 )
@@ -76,6 +78,8 @@ type Controller struct {
 	deploymentsSynced cache.InformerSynced
 	foosLister        listers.FooLister
 	foosSynced        cache.InformerSynced
+	idkSynced         cache.InformerSynced
+	wgSynced          cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -94,7 +98,10 @@ func NewController(
 	kubeclientset kubernetes.Interface,
 	sampleclientset clientset.Interface,
 	deploymentInformer appsinformers.DeploymentInformer,
-	fooInformer informers.FooInformer) *Controller {
+	fooInformer informers.FooInformer,
+	idkInformer idkinformers.IDontKnowInformer,
+	wgInformer wginformers.WireGuardInterfaceInformer,
+) *Controller {
 	logger := klog.FromContext(ctx)
 
 	// Create event broadcaster
@@ -119,11 +126,68 @@ func NewController(
 		deploymentsSynced: deploymentInformer.Informer().HasSynced,
 		foosLister:        fooInformer.Lister(),
 		foosSynced:        fooInformer.Informer().HasSynced,
+		idkSynced:         idkInformer.Informer().HasSynced,
+		wgSynced:          wgInformer.Informer().HasSynced,
 		workqueue:         workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:          recorder,
 	}
 
 	logger.Info("Setting up event handlers")
+
+	idkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			k, err := cache.ObjectToName(obj)
+			if err != nil {
+				logger.Error(err, "Error converting object to name", "object", obj)
+				return
+			}
+			logger.V(4).Info("add", "key", k)
+		},
+		UpdateFunc: func(old, new interface{}) {
+			k, err := cache.ObjectToName(new)
+			if err != nil {
+				logger.Error(err, "Error converting object to name", "object", new)
+				return
+			}
+			logger.V(4).Info("update", "key", k)
+		},
+		DeleteFunc: func(obj interface{}) {
+			k, err := cache.ObjectToName(obj)
+			if err != nil {
+				logger.Error(err, "Error converting object to name", "object", obj)
+				return
+			}
+			logger.V(4).Info("delete", "key", k)
+		},
+	})
+
+	wgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			k, err := cache.ObjectToName(obj)
+			if err != nil {
+				logger.Error(err, "Error converting object to name", "object", obj)
+				return
+			}
+			logger.V(4).Info("wg", "add", "key", k)
+		},
+		UpdateFunc: func(old, new interface{}) {
+			k, err := cache.ObjectToName(new)
+			if err != nil {
+				logger.Error(err, "Error converting object to name", "object", new)
+				return
+			}
+			logger.V(4).Info("wg", "update", "key", k)
+		},
+		DeleteFunc: func(obj interface{}) {
+			k, err := cache.ObjectToName(obj)
+			if err != nil {
+				logger.Error(err, "Error converting object to name", "object", obj)
+				return
+			}
+			logger.V(4).Info("wg", "delete", "key", k)
+		},
+	})
+
 	// Set up an event handler for when Foo resources change
 	fooInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.enqueueFoo,
@@ -170,7 +234,7 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	// Wait for the caches to be synced before starting workers
 	logger.Info("Waiting for informer caches to sync")
 
-	if ok := cache.WaitForCacheSync(ctx.Done(), c.deploymentsSynced, c.foosSynced); !ok {
+	if ok := cache.WaitForCacheSync(ctx.Done(), c.deploymentsSynced, c.foosSynced, c.idkSynced, c.wgSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
