@@ -46,15 +46,31 @@ type WireGuardPeerSpec struct {
 	PersistentKeepalive   *int                `json:"persistentKeepalive,omitempty"`
 }
 
+type WireGuardInterfaceContainerNetNSSpec struct {
+	Path string `json:"path"`
+	PID  int    `json:"pid"`
+}
+
+type WireGuardInterfaceContainerDockerSpec struct {
+	Name string `json:"name"`
+}
+
+type WireGuardInterfaceContainerSpec struct {
+	NetNS  *WireGuardInterfaceContainerNetNSSpec  `json:"netns,omitempty"`
+	Docker *WireGuardInterfaceContainerDockerSpec `json:"docker,omitempty"`
+}
+
 // WireGuardInterfaceSpec is the spec for a WireGuardInterface resource
 type WireGuardInterfaceSpec struct {
-	Node                string              `json:"node"`
-	InterfaceName       string              `json:"interfaceName"`
-	PrivateKeySecretRef PrivateKeySecretRef `json:"privateKeySecretRef"`
-	Address             []string            `json:"address"`
-	ListenPort          int                 `json:"listenPort"`
-	MTU                 int                 `json:"mtu"`
-	Peers               []WireGuardPeerSpec `json:"peers"`
+	Node                string                           `json:"node"`
+	MoveToContainer     bool                             `json:"moveToContainer"`
+	Container           *WireGuardInterfaceContainerSpec `json:"container,omitempty"`
+	InterfaceName       string                           `json:"interfaceName"`
+	PrivateKeySecretRef PrivateKeySecretRef              `json:"privateKeySecretRef"`
+	Address             []string                         `json:"address"`
+	ListenPort          int                              `json:"listenPort"`
+	MTU                 int                              `json:"mtu"`
+	Peers               []WireGuardPeerSpec              `json:"peers"`
 }
 
 type PeerStatus struct {

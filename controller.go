@@ -18,7 +18,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -401,6 +403,13 @@ func (c *Controller) handleWGAdded(obj interface{}) {
 	if object, ok = obj.(metav1.Object); ok {
 		logger.V(4).Info("Processing wgi object creation", "object", klog.KObj(object))
 	}
+	wgObj, err := c.wgLister.Get(object.GetName())
+	if err != nil {
+		logger.Error(err, "Error getting wgi object", "object", klog.KObj(object))
+		return
+	}
+	logger.V(4).Info("Wgi object", "object", klog.KObj(wgObj))
+	json.NewEncoder(os.Stdout).Encode(wgObj)
 }
 
 func (c *Controller) handleWGDeleted(obj interface{}) {
