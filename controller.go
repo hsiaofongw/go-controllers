@@ -31,7 +31,6 @@ import (
 
 	"github.com/vishvananda/netns"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,7 +49,6 @@ import (
 	"k8s.io/klog/v2"
 
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
-	samplev1alpha1 "k8s.io/sample-controller/pkg/apis/samplecontroller/v1alpha1"
 	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
 	samplescheme "k8s.io/sample-controller/pkg/generated/clientset/versioned/scheme"
 	idkinformers "k8s.io/sample-controller/pkg/generated/informers/externalversions/idontknow/v1alpha1"
@@ -170,57 +168,6 @@ func NewController(
 		},
 	})
 
-	// wgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-	// 	AddFunc: func(obj interface{}) {
-	// 		controller.handleWGUpdated(obj, nil)
-	// 	},
-	// 	UpdateFunc: func(old, new interface{}) {
-	// 		newWgi := new.(*networkingv1alpha1.WireGuardInterface)
-	// 		oldWgi := old.(*networkingv1alpha1.WireGuardInterface)
-	// 		if newWgi.ResourceVersion == oldWgi.ResourceVersion {
-	// 			// Periodic resync will send update events for all known WGIs.
-	// 			// Two different versions of the same WGI will always have different RVs.
-	// 			return
-	// 		}
-
-	// 		// the old object doesn't matter, we only care about the new one.
-	// 		// if the old interface exists, we will delete it before creating the new one.
-
-	// 		controller.handleWGUpdated(new, newWgi.GetDeletionTimestamp())
-	// 	},
-	// 	DeleteFunc: func(obj interface{}) {
-	// 		controller.handleWGUpdated(obj, nil)
-	// 	},
-	// })
-
-	// Set up an event handler for when Foo resources change
-	fooInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.enqueueFoo,
-		UpdateFunc: func(old, new interface{}) {
-			controller.enqueueFoo(new)
-		},
-	})
-	// Set up an event handler for when Deployment resources change. This
-	// handler will lookup the owner of the given Deployment, and if it is
-	// owned by a Foo resource then the handler will enqueue that Foo resource for
-	// processing. This way, we don't need to implement custom logic for
-	// handling Deployment resources. More info on this pattern:
-	// https://github.com/kubernetes/community/blob/8cafef897a22026d42f5e5bb3f104febe7e29830/contributors/devel/controllers.md
-	deploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.handleObject,
-		UpdateFunc: func(old, new interface{}) {
-			newDepl := new.(*appsv1.Deployment)
-			oldDepl := old.(*appsv1.Deployment)
-			if newDepl.ResourceVersion == oldDepl.ResourceVersion {
-				// Periodic resync will send update events for all known Deployments.
-				// Two different versions of the same Deployment will always have different RVs.
-				return
-			}
-			controller.handleObject(new)
-		},
-		DeleteFunc: controller.handleObject,
-	})
-
 	return controller
 }
 
@@ -310,108 +257,6 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 	return true
 }
 
-// syncHandler compares the actual state with the desired, and attempts to
-// converge the two. It then updates the Status block of the Foo resource
-// with the current status of the resource.
-func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName) error {
-	logger := klog.LoggerWithValues(klog.FromContext(ctx), "objectRef", objectRef)
-
-	// Get the Foo resource with this namespace/name
-	foo, err := c.foosLister.Foos(objectRef.Namespace).Get(objectRef.Name)
-	if err != nil {
-		// The Foo resource may no longer exist, in which case we stop
-		// processing.
-		if errors.IsNotFound(err) {
-			utilruntime.HandleErrorWithContext(ctx, err, "Foo referenced by item in work queue no longer exists", "objectReference", objectRef)
-			return nil
-		}
-
-		return err
-	}
-
-	deploymentName := foo.Spec.DeploymentName
-	if deploymentName == "" {
-		// We choose to absorb the error here as the worker would requeue the
-		// resource otherwise. Instead, the next time the resource is updated
-		// the resource will be queued again.
-		utilruntime.HandleErrorWithContext(ctx, nil, "Deployment name missing from object reference", "objectReference", objectRef)
-		return nil
-	}
-
-	// Get the deployment with the name specified in Foo.spec
-	deployment, err := c.deploymentsLister.Deployments(foo.Namespace).Get(deploymentName)
-	// If the resource doesn't exist, we'll create it
-	if errors.IsNotFound(err) {
-		deployment, err = c.kubeclientset.AppsV1().Deployments(foo.Namespace).Create(ctx, newDeployment(foo), metav1.CreateOptions{FieldManager: FieldManager})
-	}
-
-	// If an error occurs during Get/Create, we'll requeue the item so we can
-	// attempt processing again later. This could have been caused by a
-	// temporary network failure, or any other transient reason.
-	if err != nil {
-		return err
-	}
-
-	// If the Deployment is not controlled by this Foo resource, we should log
-	// a warning to the event recorder and return error msg.
-	if !metav1.IsControlledBy(deployment, foo) {
-		msg := fmt.Sprintf(MessageResourceExists, deployment.Name)
-		c.recorder.Event(foo, corev1.EventTypeWarning, ErrResourceExists, msg)
-		return fmt.Errorf("%s", msg)
-	}
-
-	// If this number of the replicas on the Foo resource is specified, and the
-	// number does not equal the current desired replicas on the Deployment, we
-	// should update the Deployment resource.
-	if foo.Spec.Replicas != nil && *foo.Spec.Replicas != *deployment.Spec.Replicas {
-		logger.V(4).Info("Update deployment resource", "currentReplicas", *deployment.Spec.Replicas, "desiredReplicas", *foo.Spec.Replicas)
-		deployment, err = c.kubeclientset.AppsV1().Deployments(foo.Namespace).Update(ctx, newDeployment(foo), metav1.UpdateOptions{FieldManager: FieldManager})
-	}
-
-	// If an error occurs during Update, we'll requeue the item so we can
-	// attempt processing again later. This could have been caused by a
-	// temporary network failure, or any other transient reason.
-	if err != nil {
-		return err
-	}
-
-	// Finally, we update the status block of the Foo resource to reflect the
-	// current state of the world
-	err = c.updateFooStatus(ctx, foo, deployment)
-	if err != nil {
-		return err
-	}
-
-	c.recorder.Event(foo, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
-	return nil
-}
-
-func (c *Controller) updateFooStatus(ctx context.Context, foo *samplev1alpha1.Foo, deployment *appsv1.Deployment) error {
-	// NEVER modify objects from the store. It's a read-only, local cache.
-	// You can use DeepCopy() to make a deep copy of original object and modify this copy
-	// Or create a copy manually for better performance
-	fooCopy := foo.DeepCopy()
-	fooCopy.Status.AvailableReplicas = deployment.Status.AvailableReplicas
-	// If the CustomResourceSubresources feature gate is not enabled,
-	// we must use Update instead of UpdateStatus to update the Status block of the Foo resource.
-	// UpdateStatus will not allow changes to the Spec of the resource,
-	// which is ideal for ensuring nothing other than resource status has been updated.
-	_, err := c.sampleclientset.SamplecontrollerV1alpha1().Foos(foo.Namespace).UpdateStatus(ctx, fooCopy, metav1.UpdateOptions{FieldManager: FieldManager})
-	return err
-}
-
-// enqueueFoo takes a Foo resource and converts it into a namespace/name
-// string which is then put onto the work queue. This method should *not* be
-// passed resources of any type other than Foo.
-func (c *Controller) enqueueFoo(obj interface{}) {
-	if objectRef, err := cache.ObjectToName(obj); err != nil {
-		utilruntime.HandleError(err)
-		return
-	} else {
-		c.workqueue.Add(objectRef)
-	}
-}
-
 // enqueueWG takes a WireGuardInterface resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should *not* be
 // passed resources of any type other than WireGuardInterface.
@@ -424,7 +269,7 @@ func (c *Controller) enqueueWG(obj interface{}) {
 	}
 }
 
-func (c *Controller) syncHandlerWG(ctx context.Context, objectRef cache.ObjectName) error {
+func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName) error {
 	logger := klog.LoggerWithValues(klog.FromContext(ctx), "objectRef", objectRef)
 
 	var object metav1.Object
@@ -480,111 +325,68 @@ func (c *Controller) syncHandlerWG(ctx context.Context, objectRef cache.ObjectNa
 		containerPid = &p
 	}
 
-	ipconfigurator := func(handle *netlink.Handle, wgLink *netlink.Wireguard) error {
+	privkeyNS := "default"
+	if wgObj.Spec.PrivateKeySecretRef.Namespace != nil {
+		privkeyNS = *wgObj.Spec.PrivateKeySecretRef.Namespace
+	}
+
+	privKey, err := c.getSecretValue(privkeyNS, wgObj.Spec.PrivateKeySecretRef.Name, wgObj.Spec.PrivateKeySecretRef.Key)
+	if err != nil {
+		return fmt.Errorf("failed to get private key: %s", err.Error())
+	}
+
+	privkeyStr := string(privKey)
+
+	ipconfigurator := func(handle *netlink.Handle, wgLink netlink.Link) error {
 		// todo
 		return nil
 	}
 
-	wgconfigurator := func(wgCtrlCli *wgctrl.Client) error {
-		return nil
+	wgconfigurator := func(wgCtrlCli *wgctrl.Client, reconcile bool) error {
+		wgConf, err := wgObj.Spec.ToZX2c4WGConf(&privkeyStr)
+		if err != nil {
+			return fmt.Errorf("failed to convert WireGuardInterface to config: %s", err.Error())
+		}
+
+		for peerIdx, peer := range wgObj.Spec.Peers {
+			wgPeerConf, err := peer.ToZX2c4WGPeerConf(nil)
+			if err != nil {
+				return fmt.Errorf("failed to convert wgi peer spec to zx2c4 wg peer conf: %s, peerIdx: %d", err.Error(), peerIdx)
+			}
+
+			wgConf.Peers = append(wgConf.Peers, *wgPeerConf)
+		}
+
+		if reconcile {
+			wgConf.ReplacePeers = true
+			if wgConf.Peers != nil {
+				for peeridx := range wgConf.Peers {
+					wgConf.Peers[peeridx].ReplaceAllowedIPs = true
+				}
+			}
+		}
+
+		return wgCtrlCli.ConfigureDevice(wgObj.Spec.InterfaceName, *wgConf)
 	}
 
-	err = c.getCurrentWGInterface(wgObj.Spec.InterfaceName, containerPid, ipconfigurator, wgconfigurator)
+	err = c.getCurrentWGInterface(wgObj.Spec.InterfaceName, containerPid, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
+		return wgconfigurator(wgCtrlCli, true)
+	})
+
 	if err != nil {
 		if !errors.IsNotFound(err) {
 			return fmt.Errorf("failed to get current WireGuard interface: %s", err.Error())
 		}
 
-		err = c.createNewWGInterface(wgObj, containerPid, ipconfigurator, wgconfigurator)
+		err = c.createNewWGInterface(wgObj, containerPid, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
+			return wgconfigurator(wgCtrlCli, false)
+		})
 		if err != nil {
 			return fmt.Errorf("failed to create new WireGuard interface: %s", err.Error())
 		}
 	}
 
 	return nil
-}
-
-// handleObject will take any resource implementing metav1.Object and attempt
-// to find the Foo resource that 'owns' it. It does this by looking at the
-// objects metadata.ownerReferences field for an appropriate OwnerReference.
-// It then enqueues that Foo resource to be processed. If the object does not
-// have an appropriate OwnerReference, it will simply be skipped.
-func (c *Controller) handleObject(obj interface{}) {
-	var object metav1.Object
-	var ok bool
-	logger := klog.FromContext(context.Background())
-	if object, ok = obj.(metav1.Object); !ok {
-		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
-		if !ok {
-			// If the object value is not too big and does not contain sensitive information then
-			// it may be useful to include it.
-			utilruntime.HandleErrorWithContext(context.Background(), nil, "Error decoding object, invalid type", "type", fmt.Sprintf("%T", obj))
-			return
-		}
-		object, ok = tombstone.Obj.(metav1.Object)
-		if !ok {
-			// If the object value is not too big and does not contain sensitive information then
-			// it may be useful to include it.
-			utilruntime.HandleErrorWithContext(context.Background(), nil, "Error decoding object tombstone, invalid type", "type", fmt.Sprintf("%T", tombstone.Obj))
-			return
-		}
-		logger.V(4).Info("Recovered deleted object", "resourceName", object.GetName())
-	}
-	logger.V(4).Info("Processing object", "object", klog.KObj(object))
-	if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
-		// If this object is not owned by a Foo, we should not do anything more
-		// with it.
-		if ownerRef.Kind != "Foo" {
-			return
-		}
-
-		foo, err := c.foosLister.Foos(object.GetNamespace()).Get(ownerRef.Name)
-		if err != nil {
-			logger.V(4).Info("Ignore orphaned object", "object", klog.KObj(object), "foo", ownerRef.Name)
-			return
-		}
-
-		c.enqueueFoo(foo)
-		return
-	}
-}
-
-// newDeployment creates a new Deployment for a Foo resource. It also sets
-// the appropriate OwnerReferences on the resource so handleObject can discover
-// the Foo resource that 'owns' it.
-func newDeployment(foo *samplev1alpha1.Foo) *appsv1.Deployment {
-	labels := map[string]string{
-		"app":        "nginx",
-		"controller": foo.Name,
-	}
-	return &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      foo.Spec.DeploymentName,
-			Namespace: foo.Namespace,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(foo, samplev1alpha1.SchemeGroupVersion.WithKind("Foo")),
-			},
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: foo.Spec.Replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "nginx",
-							Image: "nginx:latest",
-						},
-					},
-				},
-			},
-		},
-	}
 }
 
 func (c *Controller) getSecretValue(ns, secName, key string) ([]byte, error) {
@@ -666,15 +468,76 @@ func (c *Controller) tryDeleteInterfaceIfExists(interfaceName string, pid *int) 
 	return nil
 }
 
-func (c *Controller) getCurrentWGInterface(interfaceName string, pid *int, ipconfigurator func(handle *netlink.Handle, wgLink *netlink.Wireguard) error, wgconfigurator func(wgCtrlCli *wgctrl.Client) error) error {
-	// todo
+// find then configure the existing WireGuard interface
+func (c *Controller) getCurrentWGInterface(interfaceName string, pid *int, ipconfigurator func(handle *netlink.Handle, wgLink netlink.Link) error, wgconfigurator func(wgCtrlCli *wgctrl.Client) error) error {
+	handle, err := netlink.NewHandle()
+	if err != nil {
+		return fmt.Errorf("failed to get netlink handle: %s", err.Error())
+	}
+	defer handle.Close()
+
+	wgCtrlCli, err := wgctrl.New()
+	if err != nil {
+		return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
+	}
+	defer wgCtrlCli.Close()
+
+	if pid == nil {
+		link, err := handle.LinkByName(interfaceName)
+		if err != nil {
+			nfErr, ok := err.(netlink.LinkNotFoundError)
+			if ok {
+				return errors.NewNotFound(corev1.Resource("wireguardinterface"), interfaceName)
+			}
+			return nfErr
+		}
+
+		if err := wgconfigurator(wgCtrlCli); err != nil {
+			return fmt.Errorf("failed to configure wgctrl client: %s", err.Error())
+		}
+		if err := ipconfigurator(handle, link); err != nil {
+			return fmt.Errorf("failed to configure ip: %s", err.Error())
+		}
+		return nil
+	}
+
+	nsHandle, err := netns.GetFromPid(*pid)
+	if err != nil {
+		return fmt.Errorf("failed to get ns handle of PID %d: %s", *pid, err.Error())
+	}
+	defer nsHandle.Close()
+
+	nsNlHandle, err := netlink.NewHandleAt(nsHandle)
+	if err != nil {
+		return fmt.Errorf("failed to get netlink at ns PID %d: %s", *pid, err.Error())
+	}
+	defer nsNlHandle.Close()
+
+	link, err := nsNlHandle.LinkByName(interfaceName)
+	if err != nil {
+		nfErr, ok := err.(netlink.LinkNotFoundError)
+		if ok {
+			return errors.NewNotFound(corev1.Resource("wireguardinterface"), interfaceName)
+		}
+		return nfErr
+	}
+
+	if err := wgconfigurator(wgCtrlCli); err != nil {
+		return fmt.Errorf("failed to configure wgctrl client: %s", err.Error())
+	}
+
+	if err := ipconfigurator(nsNlHandle, link); err != nil {
+		return fmt.Errorf("failed to configure ip: %s", err.Error())
+	}
+
 	return nil
 }
 
+// create then configure the new WireGuard interface
 func (c *Controller) createNewWGInterface(
 	wgObj *networkingv1alpha1.WireGuardInterface,
 	pid *int,
-	ipconfigurator func(handle *netlink.Handle, wgLink *netlink.Wireguard) error,
+	ipconfigurator func(handle *netlink.Handle, wgLink netlink.Link) error,
 	wgconfigurator func(wgCtrlCli *wgctrl.Client) error,
 ) error {
 	wgLink := new(netlink.Wireguard)
@@ -690,46 +553,15 @@ func (c *Controller) createNewWGInterface(
 		return fmt.Errorf("failed to add link: %s", err.Error())
 	}
 
-	privkeyNS := "default"
-	if wgObj.Spec.PrivateKeySecretRef.Namespace != nil {
-		privkeyNS = *wgObj.Spec.PrivateKeySecretRef.Namespace
-		if privkeyNS == "" {
-			privkeyNS = "default"
-		}
-	}
-	privKey, err := c.getSecretValue(privkeyNS, wgObj.Spec.PrivateKeySecretRef.Name, wgObj.Spec.PrivateKeySecretRef.Key)
-	if err != nil {
-		return fmt.Errorf("failed to get private key: %s", err.Error())
-	}
-
-	privkeyStr := string(privKey)
-	wgConf, err := wgObj.Spec.ToZX2c4WGConf(&privkeyStr)
-	if err != nil {
-		return fmt.Errorf("failed to convert WireGuardInterface to config: %s", err.Error())
-	}
-
-	for peerIdx, peer := range wgObj.Spec.Peers {
-		wgPeerConf, err := peer.ToZX2c4WGPeerConf(nil)
-		if err != nil {
-			return fmt.Errorf("failed to convert wgi peer spec to zx2c4 wg peer conf: %s, peerIdx: %d", err.Error(), peerIdx)
-		}
-
-		wgConf.Peers = append(wgConf.Peers, *wgPeerConf)
-	}
-
 	wgCtrlCli, err := wgctrl.New()
 	if err != nil {
 		return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
 	}
 	defer wgCtrlCli.Close()
 
-	wgCtrlCli.ConfigureDevice(wgObj.Spec.InterfaceName, *wgConf)
-
-	handle, err = netlink.NewHandle()
-	if err != nil {
-		return fmt.Errorf("failed to get netlink handle: %s", err.Error())
+	if err := wgconfigurator(wgCtrlCli); err != nil {
+		return fmt.Errorf("failed to configure wgctrl client: %s", err.Error())
 	}
-	defer handle.Close()
 
 	if err := handle.LinkAdd(wgLink); err != nil {
 		return fmt.Errorf("failed to add link: %s", err.Error())
