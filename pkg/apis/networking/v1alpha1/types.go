@@ -17,6 +17,12 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+	"net"
+	"time"
+
+	"github.com/vishvananda/netlink"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -43,7 +49,7 @@ type WireGuardPeerSpec struct {
 	PublicKey             string               `json:"publicKey"`
 	PresharedKeySecretRef *PrivateKeySecretRef `json:"presharedKeySecretRef,omitempty"`
 	AllowedIPs            []string             `json:"allowedIPs,omitempty"`
-	Endpoint              string               `json:"endpoint,omitempty"`
+	Endpoint              *string              `json:"endpoint,omitempty"`
 	PersistentKeepalive   *int                 `json:"persistentKeepalive,omitempty"`
 }
 
@@ -67,11 +73,11 @@ type WireGuardInterfaceSpec struct {
 	MoveToContainer       bool                             `json:"moveToContainer"`
 	Container             *WireGuardInterfaceContainerSpec `json:"container,omitempty"`
 	InterfaceName         string                           `json:"interfaceName"`
-	PrivateKeySecretRef   *PrivateKeySecretRef              `json:"privateKeySecretRef,omitempty"`
+	PrivateKeySecretRef   *PrivateKeySecretRef             `json:"privateKeySecretRef,omitempty"`
 	PresharedKeySecretRef *PrivateKeySecretRef             `json:"presharedKeySecretRef,omitempty"`
 	Addresses             []WireGuardInterfaceAddressSpec  `json:"addresses"`
 	ListenPort            int                              `json:"listenPort"`
-	MTU                   int                              `json:"mtu"`
+	MTU                   *int                             `json:"mtu,omitempty"`
 	Peers                 []WireGuardPeerSpec              `json:"peers"`
 }
 
@@ -113,4 +119,94 @@ type WireGuardInterfaceList struct {
 	metav1.ListMeta `json:"metadata"`
 
 	Items []WireGuardInterface `json:"items"`
+}
+
+func (peerSpec *WireGuardPeerSpec) ToZX2c4WGPeerConf(presharedKey *string) (*wgtypes.Peer, error) {
+	wgPeerConf := new(wgtypes.Peer)
+	if peerSpec.PublicKey == "" {
+		return nil, fmt.Errorf("public key is required")
+	}
+
+	pubkeyObj, err := wgtypes.ParseKey(peerSpec.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid peer public key: %s", err.Error())
+	}
+
+	wgPeerConf.PublicKey = pubkeyObj
+
+	if presharedKey != nil && *presharedKey != "" {
+		pskObj, err := wgtypes.ParseKey(*presharedKey)
+		if err != nil {
+			return nil, fmt.Errorf("preshared provided but invalid: %s (note it is optional)", err.Error())
+		}
+		wgPeerConf.PresharedKey = pskObj
+	}
+
+	if peerSpec.PersistentKeepalive != nil {
+		wgPeerConf.PersistentKeepaliveInterval = time.Duration(*peerSpec.PersistentKeepalive) * time.Second
+	}
+
+	if peerSpec.Endpoint != nil && *peerSpec.Endpoint != "" {
+		peerUDPAddr, err := net.ResolveUDPAddr("udp", *peerSpec.Endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve peer endpoint %s: %s", *peerSpec.Endpoint, err.Error())
+		}
+		wgPeerConf.Endpoint = peerUDPAddr
+	}
+
+	if len(peerSpec.AllowedIPs) > 0 {
+		for _, iprange := range peerSpec.AllowedIPs {
+			_, ipNet, err := net.ParseCIDR(iprange)
+			if err != nil {
+				return nil, fmt.Errorf("invalid allowed ip cidr: %s: %s", iprange, err.Error())
+			}
+			wgPeerConf.AllowedIPs = append(wgPeerConf.AllowedIPs, *ipNet)
+		}
+	}
+
+	return wgPeerConf, nil
+}
+
+func (wgi *WireGuardInterfaceAddressSpec) MakeNetlinkAddrObject() (*netlink.Addr, error) {
+	family := wgi.Family
+	local := wgi.Local
+	peer := wgi.Peer
+	prefixlen := wgi.Prefixlen
+	if prefixlen == 0 {
+		return nil, fmt.Errorf("invalid prefix length: %d", prefixlen)
+	}
+
+	bits := 32
+	if family == "inet6" {
+		bits = 128
+	}
+
+	addrObj := new(netlink.Addr)
+	addrObj.IPNet = new(net.IPNet)
+	addrObj.IP = net.ParseIP(local)
+	addrObj.Peer = new(net.IPNet)
+	addrObj.Peer.IP = net.ParseIP(peer)
+	addrObj.Peer.Mask = net.CIDRMask(prefixlen, bits)
+
+	return addrObj, nil
+}
+
+func (wgi *WireGuardInterfaceSpec) ToZX2c4WGConf(privateKey *string) (*wgtypes.Config, error) {
+	wgConf := new(wgtypes.Config)
+	if wgi.ListenPort != 0 {
+		wgConf.ListenPort = &wgi.ListenPort
+	}
+
+	wgConf.PrivateKey = nil
+	if privateKey != nil && *privateKey != "" {
+		if privKeyObj, err := wgtypes.ParseKey(*privateKey); err == nil {
+			wgConf.PrivateKey = &privKeyObj
+		}
+	}
+
+	if wgConf.PrivateKey == nil {
+		return nil, fmt.Errorf("Failed to obtain the private key, either not provided or invalid")
+	}
+
+	return wgConf, nil
 }
