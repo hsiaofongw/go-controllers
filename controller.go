@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	dockerUtil "example.com/go-util/pkg/util/docker"
@@ -161,26 +162,36 @@ func NewController(
 
 	logger.Info("Setting up event handlers")
 
+	// Set up an event handler for when Foo resources change
 	wgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			controller.handleWGUpdated(obj, nil)
-		},
+		AddFunc: controller.enqueueWG,
 		UpdateFunc: func(old, new interface{}) {
-			newWgi := new.(*networkingv1alpha1.WireGuardInterface)
-			oldWgi := old.(*networkingv1alpha1.WireGuardInterface)
-			if newWgi.ResourceVersion == oldWgi.ResourceVersion {
-				// Periodic resync will send update events for all known WGIs.
-				// Two different versions of the same WGI will always have different RVs.
-				return
-			}
-
-			// the old object doesn't matter, we only care about the new one.
-			// if the old interface exists, we will delete it before creating the new one.
-
-			controller.handleWGUpdated(new, newWgi.GetDeletionTimestamp())
+			controller.enqueueWG(new)
 		},
-		DeleteFunc: controller.handleWGDeleted,
 	})
+
+	// wgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	// 	AddFunc: func(obj interface{}) {
+	// 		controller.handleWGUpdated(obj, nil)
+	// 	},
+	// 	UpdateFunc: func(old, new interface{}) {
+	// 		newWgi := new.(*networkingv1alpha1.WireGuardInterface)
+	// 		oldWgi := old.(*networkingv1alpha1.WireGuardInterface)
+	// 		if newWgi.ResourceVersion == oldWgi.ResourceVersion {
+	// 			// Periodic resync will send update events for all known WGIs.
+	// 			// Two different versions of the same WGI will always have different RVs.
+	// 			return
+	// 		}
+
+	// 		// the old object doesn't matter, we only care about the new one.
+	// 		// if the old interface exists, we will delete it before creating the new one.
+
+	// 		controller.handleWGUpdated(new, newWgi.GetDeletionTimestamp())
+	// 	},
+	// 	DeleteFunc: func(obj interface{}) {
+	// 		controller.handleWGUpdated(obj, nil)
+	// 	},
+	// })
 
 	// Set up an event handler for when Foo resources change
 	fooInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -401,163 +412,97 @@ func (c *Controller) enqueueFoo(obj interface{}) {
 	}
 }
 
-func (c *Controller) handleWGUpdated(obj interface{}, deletion *metav1.Time) {
-	var object metav1.Object
-	var ok bool
-	logger := klog.FromContext(context.Background())
-	if object, ok = obj.(metav1.Object); ok {
-		logger.V(4).Info("Processing wgi object creation", "object", klog.KObj(object))
+// enqueueWG takes a WireGuardInterface resource and converts it into a namespace/name
+// string which is then put onto the work queue. This method should *not* be
+// passed resources of any type other than WireGuardInterface.
+func (c *Controller) enqueueWG(obj interface{}) {
+	if objectRef, err := cache.ObjectToName(obj); err != nil {
+		utilruntime.HandleError(err)
+		return
+	} else {
+		c.workqueue.AddRateLimited(objectRef)
 	}
+}
+
+func (c *Controller) syncHandlerWG(ctx context.Context, objectRef cache.ObjectName) error {
+	logger := klog.LoggerWithValues(klog.FromContext(ctx), "objectRef", objectRef)
+
+	var object metav1.Object
+
+	logger.V(4).Info("Processing wgi object creation", "object", objectRef.Name)
+
 	wgObj, err := c.wgLister.Get(object.GetName())
 	if err != nil {
-		logger.Error(err, "Error getting wgi object", "object", klog.KObj(object))
-		return
+		if errors.IsNotFound(err) {
+			utilruntime.HandleErrorWithContext(ctx, err, "WireGuardInterface referenced by item in work queue no longer exists", "objectReference", objectRef)
+			return nil
+		}
+
+		return err
 	}
 
 	nodeName := wgObj.Spec.Node
-	moveToContainer := wgObj.Spec.MoveToContainer
-	dockerContainer := ""
-	if wgObj.Spec.Container != nil {
-		dockerContainer = wgObj.Spec.Container.Docker.Name
-	}
-	interfaceName := wgObj.Spec.InterfaceName
-	privateKeySecName := ""
-	privateKeySecFieldName := "key"
-	privateKeySecNS := "default"
-	if wgObj.Spec.PrivateKeySecretRef != nil {
-		privateKeySecName = wgObj.Spec.PrivateKeySecretRef.Name
-		if wgObj.Spec.PrivateKeySecretRef.Key != "" {
-			privateKeySecFieldName = wgObj.Spec.PrivateKeySecretRef.Key
-		}
-		if wgObj.Spec.PrivateKeySecretRef.Namespace != nil {
-			privateKeySecNS = *wgObj.Spec.PrivateKeySecretRef.Namespace
-		}
-	}
-
-	addresses := wgObj.Spec.Addresses
-	listenPort := wgObj.Spec.ListenPort
-
-	fmt.Println("NodeName: ", nodeName)
-	fmt.Println("MoveToContainer: ", moveToContainer)
-	fmt.Println("DockerContainer: ", dockerContainer)
-	fmt.Println("InterfaceName: ", interfaceName)
-	fmt.Println("PrivateKeySecName: ", privateKeySecName)
-	fmt.Println("PrivateKeySecFieldName: ", privateKeySecFieldName)
-	fmt.Println("PrivateKeySecNS: ", privateKeySecNS)
-	fmt.Println("Addresses: ", addresses)
-	fmt.Println("ListenPort: ", listenPort)
-
-	privKey, err := c.getSecretValue(privateKeySecNS, privateKeySecName, privateKeySecFieldName)
+	host, err := os.Hostname()
 	if err != nil {
-		logger.Error(err, "Error getting private keysecret value", "object", klog.KObj(object))
-		return
+		return fmt.Errorf("failed to get hostname: %s", err.Error())
 	}
 
-	fmt.Println("PrivateKey: ", string(privKey))
+	if host != nodeName {
+		logger.V(4).Info("This node is not responsible for this WireGuardInterface", "objectReference", objectRef)
+		return nil
+	}
+
+	deletionTime := wgObj.GetDeletionTimestamp()
+	if deletionTime != nil {
+		// Clean up underlying resources, then
+		// clear all finalizers from the object
+		err := c.tryDeleteInterfaceIfExists(wgObj.Spec.InterfaceName, nil)
+		if err != nil {
+			return fmt.Errorf("failed to delete interface: %s", err.Error())
+		}
+
+		wgObjCopy := wgObj.DeepCopy()
+		wgObjCopy.SetFinalizers([]string{})
+		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Update(context.Background(), wgObjCopy, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to clear finalizers from WireGuardInterface, will retry: %s", err.Error())
+		}
+
+		return nil
+	}
 
 	var containerPid *int = nil
-	if moveToContainer {
-		p, err := c.getDockerContainerPid(dockerContainer)
+	if wgObj.Spec.MoveToContainer && wgObj.Spec.Container != nil && wgObj.Spec.Container.Docker != nil {
+		p, err := c.getDockerContainerPid(wgObj.Spec.Container.Docker.Name)
 		if err != nil {
-			logger.Error(err, "Error getting container pid", "object", klog.KObj(object))
-			return
+			return fmt.Errorf("failed to get container pid: %s", err.Error())
 		}
 		containerPid = &p
 	}
 
-	logger.V(4).Info("ContainerPid: ", "containerPid", containerPid)
+	ipconfigurator := func(handle *netlink.Handle, wgLink *netlink.Wireguard) error {
+		// todo
+		return nil
+	}
 
-	err = c.tryDeleteInterfaceIfExists(interfaceName, containerPid)
+	wgconfigurator := func(wgCtrlCli *wgctrl.Client) error {
+		return nil
+	}
+
+	err = c.getCurrentWGInterface(wgObj.Spec.InterfaceName, containerPid, ipconfigurator, wgconfigurator)
 	if err != nil {
-		logger.Error(err, "Unrecoverable error while deleting interface", "object", klog.KObj(object))
-		return
-	}
-
-	if deletion != nil {
-		// todo: remove all finalizers from the object
-		c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Update(context.Background(), wgObj, metav1.UpdateOptions{})
-		return
-	}
-
-	logger.V(4).Info("Starting to create interface", "object", klog.KObj(object))
-	wgLink := new(netlink.Wireguard)
-	wgLink.Attrs().Name = interfaceName
-
-	handle, err := netlink.NewHandle()
-	if err != nil {
-		logger.Error(err, "Failed to get netlink handle", "object", klog.KObj(object))
-		return
-	}
-	defer handle.Close()
-
-	if err := handle.LinkAdd(wgLink); err != nil {
-		logger.Error(err, "Failed to create WireGuard interface", "object", klog.KObj(object))
-		return
-	}
-
-	privkeyStr := string(privKey)
-	wgConf, err := wgObj.Spec.ToZX2c4WGConf(&privkeyStr)
-	if err != nil {
-		logger.Error(err, "Failed to convert wgi spec to zx2c4 wg conf", "object", klog.KObj(object))
-		return
-	}
-
-	wgCtrlCli, err := wgctrl.New()
-	if err != nil {
-		logger.Error(err, "Failed to retrieve WireGuard client", "object", klog.KObj(object))
-		return
-	}
-
-	defer func() {
-		if err := wgCtrlCli.Close(); err != nil {
-			logger.Error(err, "Failed to close WireGuard client", "object", klog.KObj(object))
+		if !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to get current WireGuard interface: %s", err.Error())
 		}
-	}()
 
-	if wgObj.Spec.Peers == nil {
-		logger.Error(fmt.Errorf("no peers specified"), "Failed to configure WireGuard interface", "object", klog.KObj(object))
-		return
-	}
-
-	for peerIdx, peer := range wgObj.Spec.Peers {
-		wgPeerConf, err := peer.ToZX2c4WGPeerConf(nil)
+		err = c.createNewWGInterface(wgObj, containerPid, ipconfigurator, wgconfigurator)
 		if err != nil {
-			logger.Error(err, "Failed to convert wgi peer spec to zx2c4 wg peer conf", "object", klog.KObj(object), "peerIdx", peerIdx)
-			return
+			return fmt.Errorf("failed to create new WireGuard interface: %s", err.Error())
 		}
-
-		wgConf.Peers = append(wgConf.Peers, *wgPeerConf)
 	}
 
-	if err := wgCtrlCli.ConfigureDevice(interfaceName, *wgConf); err != nil {
-		logger.Error(err, "Failed to configure WireGuard interface", "object", klog.KObj(object))
-		return
-	}
-
+	return nil
 }
-
-func (c *Controller) handleWGDeleted(obj interface{}) {
-	// todo: check finalizers (by doing type assertion)
-
-	var object metav1.Object
-	var ok bool
-	logger := klog.FromContext(context.Background())
-	if object, ok = obj.(metav1.Object); ok {
-		logger.V(4).Info("Processing wgi object deletion", "object", klog.KObj(object))
-	}
-
-	// todo: add finalizer to the object so that we can gracefully clean up before deletion
-	// err := c.tryDeleteInterfaceIfExists(object.GetName(), nil)
-}
-
-// func (c *Controller) handleWGUpdated(old, newObj interface{}) {
-// 	var object metav1.Object
-// 	var ok bool
-// 	logger := klog.FromContext(context.Background())
-// 	if object, ok = newObj.(metav1.Object); ok {
-// 		logger.V(4).Info("Processing wgi object update", "object", klog.KObj(object))
-// 	}
-// }
 
 // handleObject will take any resource implementing metav1.Object and attempt
 // to find the Foo resource that 'owns' it. It does this by looking at the
@@ -718,5 +663,122 @@ func (c *Controller) tryDeleteInterfaceIfExists(interfaceName string, pid *int) 
 	if err != nil {
 		return fmt.Errorf("failed to delete link inside ns: %s", err.Error())
 	}
+	return nil
+}
+
+func (c *Controller) getCurrentWGInterface(interfaceName string, pid *int, ipconfigurator func(handle *netlink.Handle, wgLink *netlink.Wireguard) error, wgconfigurator func(wgCtrlCli *wgctrl.Client) error) error {
+	// todo
+	return nil
+}
+
+func (c *Controller) createNewWGInterface(
+	wgObj *networkingv1alpha1.WireGuardInterface,
+	pid *int,
+	ipconfigurator func(handle *netlink.Handle, wgLink *netlink.Wireguard) error,
+	wgconfigurator func(wgCtrlCli *wgctrl.Client) error,
+) error {
+	wgLink := new(netlink.Wireguard)
+	wgLink.Attrs().Name = wgObj.Spec.InterfaceName
+
+	handle, err := netlink.NewHandle()
+	if err != nil {
+		return fmt.Errorf("failed to get netlink handle: %s", err.Error())
+	}
+	defer handle.Close()
+
+	if err := handle.LinkAdd(wgLink); err != nil {
+		return fmt.Errorf("failed to add link: %s", err.Error())
+	}
+
+	privkeyNS := "default"
+	if wgObj.Spec.PrivateKeySecretRef.Namespace != nil {
+		privkeyNS = *wgObj.Spec.PrivateKeySecretRef.Namespace
+		if privkeyNS == "" {
+			privkeyNS = "default"
+		}
+	}
+	privKey, err := c.getSecretValue(privkeyNS, wgObj.Spec.PrivateKeySecretRef.Name, wgObj.Spec.PrivateKeySecretRef.Key)
+	if err != nil {
+		return fmt.Errorf("failed to get private key: %s", err.Error())
+	}
+
+	privkeyStr := string(privKey)
+	wgConf, err := wgObj.Spec.ToZX2c4WGConf(&privkeyStr)
+	if err != nil {
+		return fmt.Errorf("failed to convert WireGuardInterface to config: %s", err.Error())
+	}
+
+	for peerIdx, peer := range wgObj.Spec.Peers {
+		wgPeerConf, err := peer.ToZX2c4WGPeerConf(nil)
+		if err != nil {
+			return fmt.Errorf("failed to convert wgi peer spec to zx2c4 wg peer conf: %s, peerIdx: %d", err.Error(), peerIdx)
+		}
+
+		wgConf.Peers = append(wgConf.Peers, *wgPeerConf)
+	}
+
+	wgCtrlCli, err := wgctrl.New()
+	if err != nil {
+		return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
+	}
+	defer wgCtrlCli.Close()
+
+	wgCtrlCli.ConfigureDevice(wgObj.Spec.InterfaceName, *wgConf)
+
+	handle, err = netlink.NewHandle()
+	if err != nil {
+		return fmt.Errorf("failed to get netlink handle: %s", err.Error())
+	}
+	defer handle.Close()
+
+	if err := handle.LinkAdd(wgLink); err != nil {
+		return fmt.Errorf("failed to add link: %s", err.Error())
+	}
+
+	if pid == nil {
+		if err := handle.LinkSetUp(wgLink); err != nil {
+			return fmt.Errorf("failed to set link %s up: %s", wgObj.Spec.InterfaceName, err.Error())
+		}
+
+		if err := ipconfigurator(handle, wgLink); err != nil {
+			return fmt.Errorf("failed to configure link: %s", err.Error())
+		}
+
+		return nil
+	}
+
+	if err := handle.LinkSetNsPid(wgLink, *pid); err != nil {
+		return fmt.Errorf("failed to move link to ns: %s", err.Error())
+	}
+
+	nsHandle, err := netns.GetFromPid(*pid)
+	if err != nil {
+		return fmt.Errorf("failed to get ns handle of PID %d: %s", *pid, err.Error())
+	}
+	defer nsHandle.Close()
+
+	nsNlHandle, err := netlink.NewHandleAt(nsHandle)
+	if err != nil {
+		return fmt.Errorf("failed to get netlink at ns PID %d: %s", *pid, err.Error())
+	}
+	defer nsNlHandle.Close()
+
+	nsWgLink, err := nsNlHandle.LinkByName(wgObj.Spec.InterfaceName)
+	if err != nil {
+		return fmt.Errorf("failed to get link inside ns: %s", err.Error())
+	}
+
+	if err := nsNlHandle.LinkSetUp(nsWgLink); err != nil {
+		return fmt.Errorf("failed to set link %s up: %s", wgObj.Spec.InterfaceName, err.Error())
+	}
+
+	if ipconfigurator == nil {
+		return fmt.Errorf("configure function is nil")
+	}
+
+	if err := ipconfigurator(nsNlHandle, wgLink); err != nil {
+		return fmt.Errorf("failed to configure link: %s", err.Error())
+	}
+
 	return nil
 }
