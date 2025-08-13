@@ -22,6 +22,7 @@ import (
 	"time"
 
 	dockerUtil "example.com/go-util/pkg/util/docker"
+	"golang.zx2c4.com/wireguard/wgctrl"
 
 	dockerSDK "github.com/docker/docker/client"
 	"github.com/vishvananda/netlink"
@@ -465,9 +466,67 @@ func (c *Controller) handleWGAdded(obj interface{}) {
 
 	err = c.tryDeleteInterfaceIfExists(interfaceName, containerPid)
 	if err != nil {
-		logger.Error(err, "Error deleting interface", "object", klog.KObj(object))
+		logger.Error(err, "Unrecoverable error while deleting interface", "object", klog.KObj(object))
 		return
 	}
+
+	logger.V(4).Info("Starting to create interface", "object", klog.KObj(object))
+	wgLink := new(netlink.Wireguard)
+	wgLink.Attrs().Name = interfaceName
+
+	handle, err := netlink.NewHandle()
+	if err != nil {
+		logger.Error(err, "Failed to get netlink handle", "object", klog.KObj(object))
+		return
+	}
+	defer handle.Close()
+
+	if err := handle.LinkAdd(wgLink); err != nil {
+		logger.Error(err, "Failed to create WireGuard interface", "object", klog.KObj(object))
+		return
+	}
+
+	privkeyStr := string(privKey)
+	wgConf, err := wgObj.Spec.ToZX2c4WGConf(&privkeyStr)
+	if err != nil {
+		logger.Error(err, "Failed to convert wgi spec to zx2c4 wg conf", "object", klog.KObj(object))
+		return
+	}
+
+	wgCtrlCli, err := wgctrl.New()
+	if err != nil {
+		logger.Error(err, "Failed to retrieve WireGuard client", "object", klog.KObj(object))
+		return
+	}
+
+	defer func() {
+		if err := wgCtrlCli.Close(); err != nil {
+			logger.Error(err, "Failed to close WireGuard client", "object", klog.KObj(object))
+		}
+	}()
+
+
+	if wgObj.Spec.Peers == nil {
+		logger.Error(fmt.Errorf("no peers specified"), "Failed to configure WireGuard interface", "object", klog.KObj(object))
+		return
+	}
+
+	for peerIdx, peer := range wgObj.Spec.Peers {
+		wgPeerConf, err := peer.ToZX2c4WGPeerConf(nil)
+		if err != nil {
+			logger.Error(err, "Failed to convert wgi peer spec to zx2c4 wg peer conf", "object", klog.KObj(object), "peerIdx", peerIdx)
+			return
+		}
+
+		wgConf.Peers=append(wgConf.Peers, *wgPeerConf)
+	}
+
+	if err := wgCtrlCli.ConfigureDevice(interfaceName, *wgConf); err != nil {
+		logger.Error(err, "Failed to configure WireGuard interface", "object", klog.KObj(object))
+		return
+	}
+
+	// todo: add finalizer to the object so that we can gracefully clean up before deletion
 }
 
 func (c *Controller) handleWGDeleted(obj interface{}) {
@@ -477,6 +536,10 @@ func (c *Controller) handleWGDeleted(obj interface{}) {
 	if object, ok = obj.(metav1.Object); ok {
 		logger.V(4).Info("Processing wgi object deletion", "object", klog.KObj(object))
 	}
+
+
+	// todo: add finalizer to the object so that we can gracefully clean up before deletion
+	// err := c.tryDeleteInterfaceIfExists(object.GetName(), nil)
 }
 
 // func (c *Controller) handleWGUpdated(old, newObj interface{}) {

@@ -121,8 +121,8 @@ type WireGuardInterfaceList struct {
 	Items []WireGuardInterface `json:"items"`
 }
 
-func (peerSpec *WireGuardPeerSpec) ToZX2c4WGPeerConf(presharedKey *string) (*wgtypes.Peer, error) {
-	wgPeerConf := new(wgtypes.Peer)
+func (peerSpec *WireGuardPeerSpec) ToZX2c4WGPeerConf(presharedKey *string) (*wgtypes.PeerConfig, error) {
+	wgPeerConf := new(wgtypes.PeerConfig)
 	if peerSpec.PublicKey == "" {
 		return nil, fmt.Errorf("public key is required")
 	}
@@ -139,11 +139,12 @@ func (peerSpec *WireGuardPeerSpec) ToZX2c4WGPeerConf(presharedKey *string) (*wgt
 		if err != nil {
 			return nil, fmt.Errorf("preshared provided but invalid: %s (note it is optional)", err.Error())
 		}
-		wgPeerConf.PresharedKey = pskObj
+		wgPeerConf.PresharedKey = &pskObj
 	}
 
 	if peerSpec.PersistentKeepalive != nil {
-		wgPeerConf.PersistentKeepaliveInterval = time.Duration(*peerSpec.PersistentKeepalive) * time.Second
+		intv := time.Duration(*peerSpec.PersistentKeepalive) * time.Second
+		wgPeerConf.PersistentKeepaliveInterval = &intv
 	}
 
 	if peerSpec.Endpoint != nil && *peerSpec.Endpoint != "" {
