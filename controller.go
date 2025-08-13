@@ -24,7 +24,10 @@ import (
 	dockerUtil "example.com/go-util/pkg/util/docker"
 
 	dockerSDK "github.com/docker/docker/client"
+	"github.com/vishvananda/netlink"
 	"golang.org/x/time/rate"
+
+	"github.com/vishvananda/netns"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -167,7 +170,10 @@ func NewController(
 				// Two different versions of the same WGI will always have different RVs.
 				return
 			}
-			controller.handleWGUpdated(old, new)
+
+			// the old object doesn't matter, we only care about the new one.
+			// if the old interface exists, we will delete it before creating the new one.
+			controller.handleWGAdded(new)
 		},
 		DeleteFunc: controller.handleWGDeleted,
 	})
@@ -456,6 +462,12 @@ func (c *Controller) handleWGAdded(obj interface{}) {
 	}
 
 	logger.V(4).Info("ContainerPid: ", "containerPid", containerPid)
+
+	err = c.tryDeleteInterfaceIfExists(interfaceName, containerPid)
+	if err != nil {
+		logger.Error(err, "Error deleting interface", "object", klog.KObj(object))
+		return
+	}
 }
 
 func (c *Controller) handleWGDeleted(obj interface{}) {
@@ -467,14 +479,14 @@ func (c *Controller) handleWGDeleted(obj interface{}) {
 	}
 }
 
-func (c *Controller) handleWGUpdated(old, newObj interface{}) {
-	var object metav1.Object
-	var ok bool
-	logger := klog.FromContext(context.Background())
-	if object, ok = newObj.(metav1.Object); ok {
-		logger.V(4).Info("Processing wgi object update", "object", klog.KObj(object))
-	}
-}
+// func (c *Controller) handleWGUpdated(old, newObj interface{}) {
+// 	var object metav1.Object
+// 	var ok bool
+// 	logger := klog.FromContext(context.Background())
+// 	if object, ok = newObj.(metav1.Object); ok {
+// 		logger.V(4).Info("Processing wgi object update", "object", klog.KObj(object))
+// 	}
+// }
 
 // handleObject will take any resource implementing metav1.Object and attempt
 // to find the Foo resource that 'owns' it. It does this by looking at the
@@ -579,4 +591,61 @@ func (c *Controller) getDockerContainerPid(containerName string) (int, error) {
 	}
 
 	return p, nil
+}
+
+// return a non-nil error only if the error is non-recoverable.
+// if the interface doesn't exist at the moment, it does nothing and silently returns nil.
+func (c *Controller) tryDeleteInterfaceIfExists(interfaceName string, pid *int) error {
+	var nlHandle *netlink.Handle
+	var err error
+
+	logger := klog.FromContext(context.Background())
+
+	nlHandle, err = netlink.NewHandle()
+	if err != nil {
+		return fmt.Errorf("failed to get netlink handle: %s", err.Error())
+	}
+
+	defer nlHandle.Close()
+
+	if pid == nil {
+		lk, err := netlink.LinkByName(interfaceName)
+		if err != nil || lk == nil {
+			return nil
+		}
+
+		err = nlHandle.LinkDel(lk)
+		if err != nil {
+			return fmt.Errorf("failed to delete link: %s", err.Error())
+		}
+		return nil
+	}
+
+	nsHandle, err := netns.GetFromPid(*pid)
+	if err != nil {
+		return fmt.Errorf("failed to get ns handle of PID %d: %s", *pid, err.Error())
+	}
+	defer func() {
+		if err := nsHandle.Close(); err != nil {
+			logger.Error(err, "Error closing ns handle", "pid", *pid)
+		}
+	}()
+
+	nsNlHandle, err := netlink.NewHandleAt(nsHandle)
+	if err != nil {
+		return fmt.Errorf("failed to get netlink at ns PID %d: %s", *pid, err.Error())
+	}
+
+	defer nsNlHandle.Close()
+
+	intf, err := nsNlHandle.LinkByName(interfaceName)
+	if err != nil {
+		return nil
+	}
+
+	err = nsNlHandle.LinkDel(intf)
+	if err != nil {
+		return fmt.Errorf("failed to delete link inside ns: %s", err.Error())
+	}
+	return nil
 }
