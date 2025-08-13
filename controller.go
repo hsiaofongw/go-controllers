@@ -162,7 +162,9 @@ func NewController(
 	logger.Info("Setting up event handlers")
 
 	wgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.handleWGAdded,
+		AddFunc: func(obj interface{}) {
+			controller.handleWGUpdated(obj, nil)
+		},
 		UpdateFunc: func(old, new interface{}) {
 			newWgi := new.(*networkingv1alpha1.WireGuardInterface)
 			oldWgi := old.(*networkingv1alpha1.WireGuardInterface)
@@ -174,7 +176,8 @@ func NewController(
 
 			// the old object doesn't matter, we only care about the new one.
 			// if the old interface exists, we will delete it before creating the new one.
-			controller.handleWGAdded(new)
+
+			controller.handleWGUpdated(new, newWgi.DeletionTimestamp)
 		},
 		DeleteFunc: controller.handleWGDeleted,
 	})
@@ -398,7 +401,7 @@ func (c *Controller) enqueueFoo(obj interface{}) {
 	}
 }
 
-func (c *Controller) handleWGAdded(obj interface{}) {
+func (c *Controller) handleWGUpdated(obj interface{}, deletion *metav1.Time) {
 	var object metav1.Object
 	var ok bool
 	logger := klog.FromContext(context.Background())
@@ -470,6 +473,11 @@ func (c *Controller) handleWGAdded(obj interface{}) {
 		return
 	}
 
+	if deletion != nil {
+		// todo: remove all finalizers from the object
+		return
+	}
+
 	logger.V(4).Info("Starting to create interface", "object", klog.KObj(object))
 	wgLink := new(netlink.Wireguard)
 	wgLink.Attrs().Name = interfaceName
@@ -505,7 +513,6 @@ func (c *Controller) handleWGAdded(obj interface{}) {
 		}
 	}()
 
-
 	if wgObj.Spec.Peers == nil {
 		logger.Error(fmt.Errorf("no peers specified"), "Failed to configure WireGuard interface", "object", klog.KObj(object))
 		return
@@ -518,7 +525,7 @@ func (c *Controller) handleWGAdded(obj interface{}) {
 			return
 		}
 
-		wgConf.Peers=append(wgConf.Peers, *wgPeerConf)
+		wgConf.Peers = append(wgConf.Peers, *wgPeerConf)
 	}
 
 	if err := wgCtrlCli.ConfigureDevice(interfaceName, *wgConf); err != nil {
@@ -526,17 +533,17 @@ func (c *Controller) handleWGAdded(obj interface{}) {
 		return
 	}
 
-	// todo: add finalizer to the object so that we can gracefully clean up before deletion
 }
 
 func (c *Controller) handleWGDeleted(obj interface{}) {
+	// todo: check finalizers (by doing type assertion)
+
 	var object metav1.Object
 	var ok bool
 	logger := klog.FromContext(context.Background())
 	if object, ok = obj.(metav1.Object); ok {
 		logger.V(4).Info("Processing wgi object deletion", "object", klog.KObj(object))
 	}
-
 
 	// todo: add finalizer to the object so that we can gracefully clean up before deletion
 	// err := c.tryDeleteInterfaceIfExists(object.GetName(), nil)
