@@ -36,6 +36,7 @@ import (
 var (
 	masterURL  string
 	kubeconfig string
+	numWorkers int
 )
 
 func main() {
@@ -68,9 +69,6 @@ func main() {
 	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*30)
 
 	controller := NewController(ctx, kubeClient, exampleClient,
-		kubeInformerFactory.Apps().V1().Deployments(),
-		exampleInformerFactory.Samplecontroller().V1alpha1().Foos(),
-		exampleInformerFactory.Idontknow().V1alpha1().IDontKnows(),
 		exampleInformerFactory.Networking().V1alpha1().WireGuardInterfaces(),
 		kubeInformerFactory.Core().V1().Secrets(),
 	)
@@ -80,7 +78,7 @@ func main() {
 	kubeInformerFactory.Start(ctx.Done())
 	exampleInformerFactory.Start(ctx.Done())
 
-	if err = controller.Run(ctx, 2); err != nil {
+	if err = controller.Run(ctx, numWorkers); err != nil {
 		logger.Error(err, "Error running controller")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
@@ -89,4 +87,5 @@ func main() {
 func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
+	flag.IntVar(&numWorkers, "num-workers", 1, "The number of workers to run.")
 }

@@ -36,12 +36,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	appsinformers "k8s.io/client-go/informers/apps/v1"
 	secretsinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	appslisters "k8s.io/client-go/listers/apps/v1"
 	secretlisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
@@ -51,11 +49,8 @@ import (
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
 	samplescheme "k8s.io/sample-controller/pkg/generated/clientset/versioned/scheme"
-	idkinformers "k8s.io/sample-controller/pkg/generated/informers/externalversions/idontknow/v1alpha1"
 	wginformers "k8s.io/sample-controller/pkg/generated/informers/externalversions/networking/v1alpha1"
-	informers "k8s.io/sample-controller/pkg/generated/informers/externalversions/samplecontroller/v1alpha1"
 	wglister "k8s.io/sample-controller/pkg/generated/listers/networking/v1alpha1"
-	listers "k8s.io/sample-controller/pkg/generated/listers/samplecontroller/v1alpha1"
 )
 
 const controllerAgentName = "sample-controller"
@@ -85,14 +80,8 @@ type Controller struct {
 	// sampleclientset is a clientset for our own API group
 	sampleclientset clientset.Interface
 
-	secretsLister     secretlisters.SecretLister
-	deploymentsLister appslisters.DeploymentLister
-	deploymentsSynced cache.InformerSynced
-	foosLister        listers.FooLister
-	wgLister          wglister.WireGuardInterfaceLister
-
-	foosSynced    cache.InformerSynced
-	idkSynced     cache.InformerSynced
+	secretsLister secretlisters.SecretLister
+	wgLister      wglister.WireGuardInterfaceLister
 	wgSynced      cache.InformerSynced
 	secretsSynced cache.InformerSynced
 
@@ -112,9 +101,6 @@ func NewController(
 	ctx context.Context,
 	kubeclientset kubernetes.Interface,
 	sampleclientset clientset.Interface,
-	deploymentInformer appsinformers.DeploymentInformer,
-	fooInformer informers.FooInformer,
-	idkInformer idkinformers.IDontKnowInformer,
 	wgInformer wginformers.WireGuardInterfaceInformer,
 	secretsInformer secretsinformers.SecretInformer,
 ) *Controller {
@@ -142,20 +128,15 @@ func NewController(
 	}
 
 	controller := &Controller{
-		dockerClient:      dockerClient,
-		kubeclientset:     kubeclientset,
-		sampleclientset:   sampleclientset,
-		deploymentsLister: deploymentInformer.Lister(),
-		deploymentsSynced: deploymentInformer.Informer().HasSynced,
-		foosLister:        fooInformer.Lister(),
-		wgLister:          wgInformer.Lister(),
-		secretsLister:     secretsInformer.Lister(),
-		foosSynced:        fooInformer.Informer().HasSynced,
-		idkSynced:         idkInformer.Informer().HasSynced,
-		wgSynced:          wgInformer.Informer().HasSynced,
-		secretsSynced:     secretsInformer.Informer().HasSynced,
-		workqueue:         workqueue.NewTypedRateLimitingQueue(ratelimiter),
-		recorder:          recorder,
+		dockerClient:    dockerClient,
+		kubeclientset:   kubeclientset,
+		sampleclientset: sampleclientset,
+		wgLister:        wgInformer.Lister(),
+		secretsLister:   secretsInformer.Lister(),
+		wgSynced:        wgInformer.Informer().HasSynced,
+		secretsSynced:   secretsInformer.Informer().HasSynced,
+		workqueue:       workqueue.NewTypedRateLimitingQueue(ratelimiter),
+		recorder:        recorder,
 	}
 
 	logger.Info("Setting up event handlers")
@@ -187,9 +168,6 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	logger.Info("Waiting for informer caches to sync")
 
 	if ok := cache.WaitForCacheSync(ctx.Done(),
-		c.deploymentsSynced,
-		c.foosSynced,
-		c.idkSynced,
 		c.wgSynced,
 		c.secretsSynced,
 	); !ok {
