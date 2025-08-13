@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"time"
 
+	dockerUtil "example.com/go-util/pkg/util/docker"
+
+	dockerSDK "github.com/docker/docker/client"
 	"golang.org/x/time/rate"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -73,6 +76,7 @@ const (
 
 // Controller is the controller implementation for Foo resources
 type Controller struct {
+	dockerClient *dockerSDK.Client
 	// kubeclientset is a standard kubernetes clientset
 	kubeclientset kubernetes.Interface
 	// sampleclientset is a clientset for our own API group
@@ -128,7 +132,14 @@ func NewController(
 		&workqueue.TypedBucketRateLimiter[cache.ObjectName]{Limiter: rate.NewLimiter(rate.Limit(50), 300)},
 	)
 
+	dockerClient, err := dockerUtil.NewDefaultDockerClient()
+	if err != nil {
+		logger.Error(err, "Error creating docker client")
+		return nil
+	}
+
 	controller := &Controller{
+		dockerClient:      dockerClient,
 		kubeclientset:     kubeclientset,
 		sampleclientset:   sampleclientset,
 		deploymentsLister: deploymentInformer.Lister(),
@@ -426,13 +437,25 @@ func (c *Controller) handleWGAdded(obj interface{}) {
 	fmt.Println("Addresses: ", addresses)
 	fmt.Println("ListenPort: ", listenPort)
 
-	secObj, err := c.secretsLister.Secrets(privateKeySecNS).Get(privateKeySecName)
+	privKey, err := c.getSecretValue(privateKeySecNS, privateKeySecName, privateKeySecFieldName)
 	if err != nil {
-		logger.Error(err, "Error getting secret object", "object", klog.KObj(object))
+		logger.Error(err, "Error getting private keysecret value", "object", klog.KObj(object))
 		return
 	}
 
-	fmt.Println("Secret Object Name: ", secObj.Name)
+	fmt.Println("PrivateKey: ", string(privKey))
+
+	var containerPid *int = nil
+	if moveToContainer {
+		p, err := c.getDockerContainerPid(dockerContainer)
+		if err != nil {
+			logger.Error(err, "Error getting container pid", "object", klog.KObj(object))
+			return
+		}
+		containerPid = &p
+	}
+
+	logger.V(4).Info("ContainerPid: ", "containerPid", containerPid)
 }
 
 func (c *Controller) handleWGDeleted(obj interface{}) {
@@ -534,4 +557,26 @@ func newDeployment(foo *samplev1alpha1.Foo) *appsv1.Deployment {
 			},
 		},
 	}
+}
+
+func (c *Controller) getSecretValue(ns, secName, key string) ([]byte, error) {
+	secObj, err := c.secretsLister.Secrets(ns).Get(secName)
+	if err != nil {
+		return nil, err
+	}
+
+	return secObj.Data[key], nil
+}
+
+func (c *Controller) getDockerContainerPid(containerName string) (int, error) {
+	if containerName == "" {
+		return -1, fmt.Errorf("moveToContainer is true but no container name is provided")
+	}
+
+	p, err := dockerUtil.GetPidOfContainer(context.Background(), c.dockerClient, containerName)
+	if err != nil {
+		return -1, err
+	}
+
+	return p, nil
 }
