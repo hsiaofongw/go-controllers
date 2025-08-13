@@ -177,7 +177,7 @@ func NewController(
 			// the old object doesn't matter, we only care about the new one.
 			// if the old interface exists, we will delete it before creating the new one.
 
-			controller.handleWGUpdated(new, newWgi.DeletionTimestamp)
+			controller.handleWGUpdated(new, newWgi.GetDeletionTimestamp())
 		},
 		DeleteFunc: controller.handleWGDeleted,
 	})
@@ -475,6 +475,7 @@ func (c *Controller) handleWGUpdated(obj interface{}, deletion *metav1.Time) {
 
 	if deletion != nil {
 		// todo: remove all finalizers from the object
+		c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Update(context.Background(), wgObj, metav1.UpdateOptions{})
 		return
 	}
 
