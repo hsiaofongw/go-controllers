@@ -20,3 +20,8 @@ package networking
 const (
 	GroupName = "networking.dn42.io"
 )
+
+// Finalizer is the finalizer name used in this package
+const (
+	Finalizer = "wireguardinterface.networking.dn42.io/finalizer"
+)
