@@ -670,11 +670,11 @@ func (c *Controller) tryDeleteInterfaceIfExists(interfaceName string, pid *int) 
 
 // find then configure the existing WireGuard interface
 func (c *Controller) getCurrentWGInterface(interfaceName string, pid *int, ipconfigurator func(handle *netlink.Handle, wgLink netlink.Link) error, wgconfigurator func(wgCtrlCli *wgctrl.Client) error) error {
-	handle, err := netlink.NewHandle()
+	hostNsHandle, err := netlink.NewHandle()
 	if err != nil {
 		return fmt.Errorf("failed to get netlink handle: %s", err.Error())
 	}
-	defer handle.Close()
+	defer hostNsHandle.Close()
 
 	wgCtrlCli, err := wgctrl.New()
 	if err != nil {
@@ -682,51 +682,43 @@ func (c *Controller) getCurrentWGInterface(interfaceName string, pid *int, ipcon
 	}
 	defer wgCtrlCli.Close()
 
-	if pid == nil {
-		link, err := handle.LinkByName(interfaceName)
+	var handle *netlink.Handle
+	handle = hostNsHandle
+
+	if pid != nil {
+		nsHandle, err := netns.GetFromPid(*pid)
 		if err != nil {
-			nfErr, ok := err.(netlink.LinkNotFoundError)
-			if ok {
-				return k8serrors.NewNotFound(corev1.Resource("wireguardinterface"), interfaceName)
-			}
-			return nfErr
+			return fmt.Errorf("failed to get ns handle of PID %d: %s", *pid, err.Error())
 		}
+		defer nsHandle.Close()
 
-		if err := wgconfigurator(wgCtrlCli); err != nil {
-			return fmt.Errorf("failed to configure wgctrl client: %s", err.Error())
+		nsLinkHandle, err := netlink.NewHandleAt(nsHandle)
+		if err != nil {
+			return fmt.Errorf("failed to get netlink at ns PID %d: %s", *pid, err.Error())
 		}
-		if err := ipconfigurator(handle, link); err != nil {
-			return fmt.Errorf("failed to configure ip: %s", err.Error())
-		}
-		return nil
+		defer nsLinkHandle.Close()
+
+		handle = nsLinkHandle
 	}
 
-	nsHandle, err := netns.GetFromPid(*pid)
+	link, err := handle.LinkByName(interfaceName)
 	if err != nil {
-		return fmt.Errorf("failed to get ns handle of PID %d: %s", *pid, err.Error())
-	}
-	defer nsHandle.Close()
-
-	nsNlHandle, err := netlink.NewHandleAt(nsHandle)
-	if err != nil {
-		return fmt.Errorf("failed to get netlink at ns PID %d: %s", *pid, err.Error())
-	}
-	defer nsNlHandle.Close()
-
-	link, err := nsNlHandle.LinkByName(interfaceName)
-	if err != nil {
-		nfErr, ok := err.(netlink.LinkNotFoundError)
+		nfErr, ok := err.(*netlink.LinkNotFoundError)
 		if ok {
 			return k8serrors.NewNotFound(corev1.Resource("wireguardinterface"), interfaceName)
 		}
-		return nfErr
+		return fmt.Errorf("failed to get link: %s, %s", err.Error(), nfErr.Error())
 	}
 
 	if err := wgconfigurator(wgCtrlCli); err != nil {
 		return fmt.Errorf("failed to configure wgctrl client: %s", err.Error())
 	}
 
-	if err := ipconfigurator(nsNlHandle, link); err != nil {
+	if err := handle.LinkSetUp(link); err != nil {
+		return fmt.Errorf("failed to set link %s up: %s", interfaceName, err.Error())
+	}
+
+	if err := ipconfigurator(handle, link); err != nil {
 		return fmt.Errorf("failed to configure ip: %s", err.Error())
 	}
 
@@ -760,10 +752,6 @@ func (c *Controller) createNewWGInterface(
 
 	if err := wgconfigurator(wgCtrlCli); err != nil {
 		return fmt.Errorf("failed to configure wgctrl client: %s", err.Error())
-	}
-
-	if err := handle.LinkAdd(wgLink); err != nil {
-		return fmt.Errorf("failed to add link: %s", err.Error())
 	}
 
 	pid, err := c.getInterfacePid(&wgObj.Spec)
