@@ -74,6 +74,7 @@ const (
 
 // Controller is the controller implementation for Foo resources
 type Controller struct {
+	hostname     string
 	dockerClient *dockerSDK.Client
 	// kubeclientset is a standard kubernetes clientset
 	kubeclientset kubernetes.Interface
@@ -96,13 +97,18 @@ type Controller struct {
 	recorder record.EventRecorder
 }
 
+type ControllerConfig struct {
+	Hostname        string
+	Kubeclientset   kubernetes.Interface
+	Sampleclientset clientset.Interface
+	WgInformer      wginformers.WireGuardInterfaceInformer
+	SecretsInformer secretsinformers.SecretInformer
+}
+
 // NewController returns a new sample controller
 func NewController(
 	ctx context.Context,
-	kubeclientset kubernetes.Interface,
-	sampleclientset clientset.Interface,
-	wgInformer wginformers.WireGuardInterfaceInformer,
-	secretsInformer secretsinformers.SecretInformer,
+	config ControllerConfig,
 ) *Controller {
 	logger := klog.FromContext(ctx)
 
@@ -114,7 +120,7 @@ func NewController(
 
 	eventBroadcaster := record.NewBroadcaster(record.WithContext(ctx))
 	eventBroadcaster.StartStructuredLogging(0)
-	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: kubeclientset.CoreV1().Events("")})
+	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: config.Kubeclientset.CoreV1().Events("")})
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
 	ratelimiter := workqueue.NewTypedMaxOfRateLimiter(
 		workqueue.NewTypedItemExponentialFailureRateLimiter[cache.ObjectName](5*time.Millisecond, 1000*time.Second),
@@ -128,13 +134,14 @@ func NewController(
 	}
 
 	controller := &Controller{
+		hostname:        config.Hostname,
 		dockerClient:    dockerClient,
-		kubeclientset:   kubeclientset,
-		sampleclientset: sampleclientset,
-		wgLister:        wgInformer.Lister(),
-		secretsLister:   secretsInformer.Lister(),
-		wgSynced:        wgInformer.Informer().HasSynced,
-		secretsSynced:   secretsInformer.Informer().HasSynced,
+		kubeclientset:   config.Kubeclientset,
+		sampleclientset: config.Sampleclientset,
+		wgLister:        config.WgInformer.Lister(),
+		secretsLister:   config.SecretsInformer.Lister(),
+		wgSynced:        config.WgInformer.Informer().HasSynced,
+		secretsSynced:   config.SecretsInformer.Informer().HasSynced,
 		workqueue:       workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:        recorder,
 	}
@@ -142,7 +149,7 @@ func NewController(
 	logger.Info("Setting up event handlers")
 
 	// Set up an event handler for when Foo resources change
-	wgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	config.WgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.enqueueWG,
 		UpdateFunc: func(old, new interface{}) {
 			controller.enqueueWG(new)
@@ -162,7 +169,7 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	logger := klog.FromContext(ctx)
 
 	// Start the informer factories to begin populating the informer caches
-	logger.Info("Starting Foo controller")
+	logger.Info("Starting controller", "hostname", c.hostname)
 
 	// Wait for the caches to be synced before starting workers
 	logger.Info("Waiting for informer caches to sync")
@@ -265,7 +272,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	}
 
 	nodeName := wgObj.Spec.Node
-	host, err := os.Hostname()
+	host, err := c.GetThisHostname()
 	if err != nil {
 		return fmt.Errorf("failed to get hostname: %s", err.Error())
 	}
@@ -666,4 +673,17 @@ func (c *Controller) createNewWGInterface(
 	}
 
 	return nil
+}
+
+func (c *Controller) GetThisHostname() (string, error) {
+	if c.hostname != "" {
+		return c.hostname, nil
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", fmt.Errorf("failed to get hostname: %s", err.Error())
+	}
+
+	return hostname, nil
 }
