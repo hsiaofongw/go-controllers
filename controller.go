@@ -56,23 +56,11 @@ import (
 const controllerAgentName = "sample-controller"
 
 const (
-	// SuccessSynced is used as part of the Event 'reason' when a Foo is synced
-	SuccessSynced = "Synced"
-	// ErrResourceExists is used as part of the Event 'reason' when a Foo fails
-	// to sync due to a Deployment of the same name already existing.
-	ErrResourceExists = "ErrResourceExists"
-
-	// MessageResourceExists is the message used for Events when a resource
-	// fails to sync due to a Deployment already existing
-	MessageResourceExists = "Resource %q already exists and is not managed by Foo"
-	// MessageResourceSynced is the message used for an Event fired when a Foo
-	// is synced successfully
-	MessageResourceSynced = "Foo synced successfully"
 	// FieldManager distinguishes this controller from other things writing to API objects
 	FieldManager = controllerAgentName
 )
 
-// Controller is the controller implementation for Foo resources
+// Controller is the controller implementation for WireGuardInterface resources
 type Controller struct {
 	nodename     string
 	dockerClient *dockerSDK.Client
@@ -105,7 +93,7 @@ type ControllerConfig struct {
 	SecretsInformer secretsinformers.SecretInformer
 }
 
-// NewController returns a new sample controller
+// NewController returns a new WireGuardInterface controller
 func NewController(
 	ctx context.Context,
 	config ControllerConfig,
@@ -113,8 +101,8 @@ func NewController(
 	logger := klog.FromContext(ctx)
 
 	// Create event broadcaster
-	// Add sample-controller types to the default Kubernetes Scheme so Events can be
-	// logged for sample-controller types.
+	// Add WireGuardInterface types to the default Kubernetes Scheme so Events can be
+	// logged for WireGuardInterface types.
 	utilruntime.Must(samplescheme.AddToScheme(scheme.Scheme))
 	logger.V(4).Info("Creating event broadcaster")
 
@@ -198,7 +186,7 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	}
 
 	logger.Info("Starting workers", "count", workers)
-	// Launch two workers to process Foo resources
+	// Launch two workers to process WireGuardInterface resources
 	for i := 0; i < workers; i++ {
 		go wait.UntilWithContext(ctx, c.runWorker, time.Second)
 	}
