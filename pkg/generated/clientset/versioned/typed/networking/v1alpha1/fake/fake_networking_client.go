@@ -28,8 +28,8 @@ type FakeNetworkingV1alpha1 struct {
 	*testing.Fake
 }
 
-func (c *FakeNetworkingV1alpha1) InetFamilies() v1alpha1.InetFamilyInterface {
-	return newFakeInetFamilies(c)
+func (c *FakeNetworkingV1alpha1) WireGuardInterfaces() v1alpha1.WireGuardInterfaceInterface {
+	return newFakeWireGuardInterfaces(c)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

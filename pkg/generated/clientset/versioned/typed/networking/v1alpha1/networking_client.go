@@ -28,7 +28,7 @@ import (
 
 type NetworkingV1alpha1Interface interface {
 	RESTClient() rest.Interface
-	InetFamiliesGetter
+	WireGuardInterfacesGetter
 }
 
 // NetworkingV1alpha1Client is used to interact with features provided by the networking.dn42.io group.
@@ -36,8 +36,8 @@ type NetworkingV1alpha1Client struct {
 	restClient rest.Interface
 }
 
-func (c *NetworkingV1alpha1Client) InetFamilies() InetFamilyInterface {
-	return newInetFamilies(c)
+func (c *NetworkingV1alpha1Client) WireGuardInterfaces() WireGuardInterfaceInterface {
+	return newWireGuardInterfaces(c)
 }
 
 // NewForConfig creates a new NetworkingV1alpha1Client for the given config.

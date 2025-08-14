@@ -30,13 +30,6 @@ import (
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-type InetFamily string
-
-const (
-	InetFamilyInet  InetFamily = "inet"
-	InetFamilyInet6 InetFamily = "inet6"
-)
-
 // WireGuardInterface is a specification for a WireGuardInterface resource
 type WireGuardInterface struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -45,6 +38,13 @@ type WireGuardInterface struct {
 	Spec   WireGuardInterfaceSpec   `json:"spec"`
 	Status WireGuardInterfaceStatus `json:"status"`
 }
+
+type InetFamily string
+
+const (
+	InetFamilyInet  InetFamily = "inet"
+	InetFamilyInet6 InetFamily = "inet6"
+)
 
 type PrivateKeySecretRef struct {
 	Name      string  `json:"name"`
