@@ -61,8 +61,7 @@ type WireGuardPeerSpec struct {
 }
 
 type WireGuardInterfaceContainerNetNSSpec struct {
-	Path *string `json:"path,omitempty"`
-	PID  *int    `json:"pid,omitempty"`
+	PID *int `json:"pid,omitempty"`
 }
 
 type WireGuardInterfaceContainerDockerSpec struct {

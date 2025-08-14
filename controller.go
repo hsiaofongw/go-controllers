@@ -307,15 +307,6 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return nil
 	}
 
-	var containerPid *int = nil
-	if wgObj.Spec.MoveToContainer && wgObj.Spec.Container != nil && wgObj.Spec.Container.Docker != nil {
-		p, err := c.getDockerContainerPid(wgObj.Spec.Container.Docker.Name)
-		if err != nil {
-			return fmt.Errorf("failed to get container pid: %s", err.Error())
-		}
-		containerPid = &p
-	}
-
 	privkeyNS := "default"
 	if wgObj.Spec.PrivateKeySecretRef.Namespace != nil {
 		privkeyNS = *wgObj.Spec.PrivateKeySecretRef.Namespace
@@ -435,7 +426,12 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return wgCtrlCli.ConfigureDevice(wgObj.Spec.InterfaceName, *wgConf)
 	}
 
-	err = c.getCurrentWGInterface(wgObj.Spec.InterfaceName, containerPid, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
+	pid, err := c.getInterfacePid(&wgObj.Spec)
+	if err != nil {
+		return fmt.Errorf("failed to get interface pid: %s", err.Error())
+	}
+
+	err = c.getCurrentWGInterface(wgObj.Spec.InterfaceName, pid, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
 		return wgconfigurator(wgCtrlCli, true)
 	})
 
@@ -444,7 +440,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 			return fmt.Errorf("failed to get current WireGuard interface: %s", err.Error())
 		}
 
-		err = c.createNewWGInterface(wgObj, containerPid, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
+		err = c.createNewWGInterface(wgObj, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
 			return wgconfigurator(wgCtrlCli, false)
 		})
 		if err != nil {
@@ -469,8 +465,13 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	// You can use DeepCopy() to make a deep copy of original object and modify this copy
 	wgObjCopy := wgObj.DeepCopy()
 
+	pid, err := c.getInterfacePid(&wgObj.Spec)
+	if err != nil {
+		return fmt.Errorf("failed to get interface pid: %s", err.Error())
+	}
+
 	// Get current WireGuard interface status
-	status, err := c.getCurrentWireGuardStatus(wgObj.Spec.InterfaceName, wgObj.Spec.MoveToContainer, wgObj.Spec.Container)
+	status, err := c.getCurrentWireGuardStatus(wgObj.Spec.InterfaceName, pid)
 	if err != nil {
 		logger.Error(err, "Failed to get current WireGuard status", "interfaceName", wgObj.Spec.InterfaceName)
 		// Don't fail the entire sync if status update fails
@@ -478,7 +479,7 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	}
 
 	// Update the status
-	wgObjCopy.Status = *status
+	wgObjCopy.Status = *status.DeepCopy()
 
 	// Use UpdateStatus to update only the Status block of the WireGuardInterface resource
 	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
@@ -491,16 +492,7 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 }
 
 // getCurrentWireGuardStatus retrieves the current status of a WireGuard interface
-func (c *Controller) getCurrentWireGuardStatus(interfaceName string, moveToContainer bool, container *networkingv1alpha1.WireGuardInterfaceContainerSpec) (*networkingv1alpha1.WireGuardInterfaceStatus, error) {
-	var containerPid *int = nil
-
-	if moveToContainer && container != nil && container.Docker != nil {
-		pid, err := c.getDockerContainerPid(container.Docker.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get container pid: %s", err.Error())
-		}
-		containerPid = &pid
-	}
+func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPid *int) (*networkingv1alpha1.WireGuardInterfaceStatus, error) {
 
 	// Get WireGuard device information
 	wgCtrlCli, err := wgctrl.New()
@@ -744,7 +736,6 @@ func (c *Controller) getCurrentWGInterface(interfaceName string, pid *int, ipcon
 // create then configure the new WireGuard interface
 func (c *Controller) createNewWGInterface(
 	wgObj *networkingv1alpha1.WireGuardInterface,
-	pid *int,
 	ipconfigurator func(handle *netlink.Handle, wgLink netlink.Link) error,
 	wgconfigurator func(wgCtrlCli *wgctrl.Client) error,
 ) error {
@@ -773,6 +764,11 @@ func (c *Controller) createNewWGInterface(
 
 	if err := handle.LinkAdd(wgLink); err != nil {
 		return fmt.Errorf("failed to add link: %s", err.Error())
+	}
+
+	pid, err := c.getInterfacePid(&wgObj.Spec)
+	if err != nil {
+		return fmt.Errorf("failed to get interface pid: %s", err.Error())
 	}
 
 	if pid == nil {
@@ -834,4 +830,33 @@ func (c *Controller) GetThisHostname() (string, error) {
 	}
 
 	return hostname, nil
+}
+
+// if the interface should be placed in current namespace, return nil
+// use this function to determine where to look for the interface: is it in the current namespace or in a container?
+// for example, if it returns a nil, look for the interface in the current namespace
+// otherwise, look for the interface in the container specified by the pid
+func (c *Controller) getInterfacePid(wgObjSpec *networkingv1alpha1.WireGuardInterfaceSpec) (*int, error) {
+	if !wgObjSpec.MoveToContainer {
+		return nil, nil
+	}
+
+	if wgObjSpec.Container == nil {
+		return nil, fmt.Errorf("moveToContainer is true but no container is specified")
+	}
+
+	contObj := wgObjSpec.Container
+	if contObj.Docker != nil && contObj.Docker.Name != "" {
+		pid, err := c.getDockerContainerPid(contObj.Docker.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get pid of container %s: %s", contObj.Docker.Name, err.Error())
+		}
+		return &pid, nil
+	}
+
+	if contObj.NetNS != nil && contObj.NetNS.PID != nil {
+		return contObj.NetNS.PID, nil
+	}
+
+	return nil, fmt.Errorf("no container is specified")
 }
