@@ -157,7 +157,11 @@ func NewController(
 			if newWG.ResourceVersion != oldWG.ResourceVersion {
 				controller.enqueueWG(new)
 			} else {
-				// todo: update status
+				if err := controller.updateWireGuardInterfaceStatus(context.Background(), newWG); err != nil {
+					logger.Error(err, "Failed to update WireGuardInterface status", "objectReference", newWG.Name, "object is enqueued, and will retry later")
+					// if failed to update status, enqueue the object for a later retry, otherwise we'll have to wait for the next resync.
+					controller.enqueueWG(new)
+				}
 			}
 		},
 	})
