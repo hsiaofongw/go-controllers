@@ -32,7 +32,7 @@ import (
 	"github.com/vishvananda/netns"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -256,7 +256,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 	wgObj, err := c.wgLister.Get(object.GetName())
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8serrors.IsNotFound(err) {
 			utilruntime.HandleErrorWithContext(ctx, err, "WireGuardInterface referenced by item in work queue no longer exists", "objectReference", objectRef)
 			return nil
 		}
@@ -316,7 +316,65 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	privkeyStr := string(privKey)
 
 	ipconfigurator := func(handle *netlink.Handle, wgLink netlink.Link) error {
-		// todo
+		addrObjs := make([]*netlink.Addr, 0)
+
+		// 1. set addresses
+		// 2. set mtu
+		if wgObj.Spec.Addresses != nil {
+			for _, addrSpec := range wgObj.Spec.Addresses {
+				addrObj, err := addrSpec.MakeNetlinkAddrObject()
+				if err != nil {
+					return fmt.Errorf("failed to make netlink addr object: %s", err.Error())
+				}
+				addrObjs = append(addrObjs, addrObj)
+			}
+		}
+
+		if wgObj.Spec.MTU != nil {
+			// default wg (over the Ethernet) mtu is 1420
+			mtu := 1420
+
+			specMTU := wgObj.Spec.MTU
+			if *specMTU != 0 {
+				mtu = *specMTU
+			}
+
+			if err := handle.LinkSetMTU(wgLink, mtu); err != nil {
+				return fmt.Errorf("failed to set mtu: %s", err.Error())
+			}
+		}
+
+		currentAddrs, err := handle.AddrList(wgLink, netlink.FAMILY_ALL)
+		if err != nil {
+			return fmt.Errorf("failed to get current addresses: %s", err.Error())
+		}
+
+		if len(currentAddrs) == 0 {
+			for _, addrObj := range addrObjs {
+				if err := handle.AddrAdd(wgLink, addrObj); err != nil {
+					return fmt.Errorf("failed to add address: %s", err.Error())
+				}
+			}
+
+			return nil
+		}
+
+		// if there is already address that is configured, will do reconcilliation
+		// 1. delete all current addresses
+		// 2. add all new addresses
+
+		for _, currAddr := range currentAddrs {
+			if err := handle.AddrDel(wgLink, &currAddr); err != nil {
+				return fmt.Errorf("failed to delete address: %s", err.Error())
+			}
+		}
+
+		for _, addrObj := range addrObjs {
+			if err := handle.AddrAdd(wgLink, addrObj); err != nil {
+				return fmt.Errorf("failed to add address: %s", err.Error())
+			}
+		}
+
 		return nil
 	}
 
@@ -352,7 +410,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	})
 
 	if err != nil {
-		if !errors.IsNotFound(err) {
+		if !k8serrors.IsNotFound(err) {
 			return fmt.Errorf("failed to get current WireGuard interface: %s", err.Error())
 		}
 
@@ -465,7 +523,7 @@ func (c *Controller) getCurrentWGInterface(interfaceName string, pid *int, ipcon
 		if err != nil {
 			nfErr, ok := err.(netlink.LinkNotFoundError)
 			if ok {
-				return errors.NewNotFound(corev1.Resource("wireguardinterface"), interfaceName)
+				return k8serrors.NewNotFound(corev1.Resource("wireguardinterface"), interfaceName)
 			}
 			return nfErr
 		}
@@ -495,7 +553,7 @@ func (c *Controller) getCurrentWGInterface(interfaceName string, pid *int, ipcon
 	if err != nil {
 		nfErr, ok := err.(netlink.LinkNotFoundError)
 		if ok {
-			return errors.NewNotFound(corev1.Resource("wireguardinterface"), interfaceName)
+			return k8serrors.NewNotFound(corev1.Resource("wireguardinterface"), interfaceName)
 		}
 		return nfErr
 	}
