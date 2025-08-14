@@ -148,11 +148,17 @@ func NewController(
 
 	logger.Info("Setting up event handlers")
 
-	// Set up an event handler for when Foo resources change
+	// Set up an event handler for when WireGuardInterface resources change
 	config.WgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.enqueueWG,
 		UpdateFunc: func(old, new interface{}) {
-			controller.enqueueWG(new)
+			oldWG := old.(*networkingv1alpha1.WireGuardInterface)
+			newWG := new.(*networkingv1alpha1.WireGuardInterface)
+			if newWG.ResourceVersion != oldWG.ResourceVersion {
+				controller.enqueueWG(new)
+			} else {
+				// todo: update status
+			}
 		},
 	})
 
@@ -446,7 +452,149 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		}
 	}
 
+	// Update the status with current WireGuard interface information
+	err = c.updateWireGuardInterfaceStatus(ctx, wgObj)
+	if err != nil {
+		return fmt.Errorf("failed to update WireGuard interface status: %s", err.Error())
+	}
+
 	return nil
+}
+
+// updateWireGuardInterfaceStatus updates the status of a WireGuard interface with current information
+func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *networkingv1alpha1.WireGuardInterface) error {
+	logger := klog.FromContext(ctx)
+
+	// NEVER modify objects from the store. It's a read-only, local cache.
+	// You can use DeepCopy() to make a deep copy of original object and modify this copy
+	wgObjCopy := wgObj.DeepCopy()
+
+	// Get current WireGuard interface status
+	status, err := c.getCurrentWireGuardStatus(wgObj.Spec.InterfaceName, wgObj.Spec.MoveToContainer, wgObj.Spec.Container)
+	if err != nil {
+		logger.Error(err, "Failed to get current WireGuard status", "interfaceName", wgObj.Spec.InterfaceName)
+		// Don't fail the entire sync if status update fails
+		return nil
+	}
+
+	// Update the status
+	wgObjCopy.Status = *status
+
+	// Use UpdateStatus to update only the Status block of the WireGuardInterface resource
+	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
+	if err != nil {
+		return fmt.Errorf("failed to update WireGuard interface status: %s", err.Error())
+	}
+
+	logger.V(4).Info("Updated WireGuard interface status", "interfaceName", wgObj.Spec.InterfaceName)
+	return nil
+}
+
+// getCurrentWireGuardStatus retrieves the current status of a WireGuard interface
+func (c *Controller) getCurrentWireGuardStatus(interfaceName string, moveToContainer bool, container *networkingv1alpha1.WireGuardInterfaceContainerSpec) (*networkingv1alpha1.WireGuardInterfaceStatus, error) {
+	var containerPid *int = nil
+
+	if moveToContainer && container != nil && container.Docker != nil {
+		pid, err := c.getDockerContainerPid(container.Docker.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get container pid: %s", err.Error())
+		}
+		containerPid = &pid
+	}
+
+	// Get WireGuard device information
+	wgCtrlCli, err := wgctrl.New()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get wgctrl client: %s", err.Error())
+	}
+	defer wgCtrlCli.Close()
+
+	// Get device info
+	device, err := wgCtrlCli.Device(interfaceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get WireGuard device: %s", err.Error())
+	}
+
+	// Get network interface addresses
+	var nlHandle *netlink.Handle
+	if containerPid == nil {
+		nlHandle, err = netlink.NewHandle()
+	} else {
+		nsHandle, err := netns.GetFromPid(*containerPid)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get ns handle of PID %d: %s", *containerPid, err.Error())
+		}
+		defer nsHandle.Close()
+
+		nlHandle, err = netlink.NewHandleAt(nsHandle)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get netlink handle: %s", err.Error())
+	}
+	defer nlHandle.Close()
+
+	link, err := nlHandle.LinkByName(interfaceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get link: %s", err.Error())
+	}
+
+	addrs, err := nlHandle.AddrList(link, netlink.FAMILY_ALL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get addresses: %s", err.Error())
+	}
+
+	// Build status
+	status := &networkingv1alpha1.WireGuardInterfaceStatus{
+		PublicKey:  device.PublicKey.String(),
+		ListenPort: &device.ListenPort,
+		Peers:      make([]networkingv1alpha1.PeerStatus, len(device.Peers)),
+		Addresses:  make([]networkingv1alpha1.NetlinkInterfaceAddressStatus, len(addrs)),
+	}
+
+	// Note: WireGuard devices don't have a global preshared key, only per-peer preshared keys
+	// The preshared key in status is typically not used for device-level configuration
+
+	// Convert peers
+	for i, peer := range device.Peers {
+		peerStatus := networkingv1alpha1.PeerStatus{
+			PublicKey: peer.PublicKey.String(),
+		}
+
+		if peer.Endpoint != nil {
+			endpointStr := peer.Endpoint.String()
+			peerStatus.Endpoint = &endpointStr
+		}
+
+		if !peer.LastHandshakeTime.IsZero() {
+			handshakeTime := peer.LastHandshakeTime.Unix()
+			peerStatus.LatestHandshake = &handshakeTime
+		}
+
+		status.Peers[i] = peerStatus
+	}
+
+	// Convert addresses
+	for i, addr := range addrs {
+		family := networkingv1alpha1.InetFamilyInet6
+		if addr.IPNet.IP.To4() != nil {
+			family = networkingv1alpha1.InetFamilyInet
+		}
+		ones, _ := addr.IPNet.Mask.Size()
+		addrStatus := networkingv1alpha1.NetlinkInterfaceAddressStatus{
+			Family:    family,
+			Local:     addr.IPNet.String(),
+			Prefixlen: ones,
+		}
+
+		if addr.IP != nil {
+			addrStr := addr.IP.String()
+			addrStatus.Address = &addrStr
+		}
+
+		status.Addresses[i] = addrStatus
+	}
+
+	return status, nil
 }
 
 func (c *Controller) getSecretValue(ns, secName, key string) ([]byte, error) {

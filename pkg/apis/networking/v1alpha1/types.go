@@ -30,6 +30,13 @@ import (
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
+type InetFamily string
+
+const (
+	InetFamilyInet  InetFamily = "inet"
+	InetFamilyInet6 InetFamily = "inet6"
+)
+
 // WireGuardInterface is a specification for a WireGuardInterface resource
 type WireGuardInterface struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -54,8 +61,8 @@ type WireGuardPeerSpec struct {
 }
 
 type WireGuardInterfaceContainerNetNSSpec struct {
-	Path string `json:"path"`
-	PID  int    `json:"pid"`
+	Path *string `json:"path,omitempty"`
+	PID  *int    `json:"pid,omitempty"`
 }
 
 type WireGuardInterfaceContainerDockerSpec struct {
@@ -69,46 +76,43 @@ type WireGuardInterfaceContainerSpec struct {
 
 // WireGuardInterfaceSpec is the spec for a WireGuardInterface resource
 type WireGuardInterfaceSpec struct {
-	Node                  string                           `json:"node"`
-	MoveToContainer       bool                             `json:"moveToContainer"`
-	Container             *WireGuardInterfaceContainerSpec `json:"container,omitempty"`
-	InterfaceName         string                           `json:"interfaceName"`
-	PrivateKeySecretRef   *PrivateKeySecretRef             `json:"privateKeySecretRef,omitempty"`
-	PresharedKeySecretRef *PrivateKeySecretRef             `json:"presharedKeySecretRef,omitempty"`
-	Addresses             []WireGuardInterfaceAddressSpec  `json:"addresses"`
-	ListenPort            int                              `json:"listenPort"`
-	MTU                   *int                             `json:"mtu,omitempty"`
-	Peers                 []WireGuardPeerSpec              `json:"peers"`
+	Node                string                           `json:"node"`
+	MoveToContainer     bool                             `json:"moveToContainer"`
+	Container           *WireGuardInterfaceContainerSpec `json:"container,omitempty"`
+	InterfaceName       string                           `json:"interfaceName"`
+	PrivateKeySecretRef *PrivateKeySecretRef             `json:"privateKeySecretRef,omitempty"`
+	Addresses           []WireGuardInterfaceAddressSpec  `json:"addresses"`
+	ListenPort          int                              `json:"listenPort"`
+	MTU                 *int                             `json:"mtu,omitempty"`
+	Peers               []WireGuardPeerSpec              `json:"peers"`
 }
 
 type WireGuardInterfaceAddressSpec struct {
-	Family        string `json:"family"`
-	Local         string `json:"local"`
-	Peer          string `json:"peer"`
-	Prefixlen     int    `json:"prefixlen"`
-	NoPrefixRoute bool   `json:"noPrefixRoute"`
+	Family        InetFamily `json:"family"`
+	Local         string     `json:"local"`
+	Peer          string     `json:"peer"`
+	Prefixlen     int        `json:"prefixlen"`
+	NoPrefixRoute bool       `json:"noPrefixRoute"`
 }
 
 type NetlinkInterfaceAddressStatus struct {
-	Family    string  `json:"family"`
-	Local     string  `json:"local"`
-	Address   *string `json:"address,omitempty"`
-	Prefixlen int     `json:"prefixlen"`
+	Family    InetFamily `json:"family"`
+	Local     string     `json:"local"`
+	Address   *string    `json:"address,omitempty"`
+	Prefixlen int        `json:"prefixlen"`
 }
 
 type PeerStatus struct {
 	PublicKey       string  `json:"publicKey"`
-	PresharedKey    *string `json:"presharedKey,omitempty"`
 	LatestHandshake *int64  `json:"latestHandshake,omitempty"`
 	Endpoint        *string `json:"endpoint,omitempty"`
 }
 
 type WireGuardInterfaceStatus struct {
-	PublicKey    string                          `json:"publicKey"`
-	PresharedKey *string                         `json:"presharedKey,omitempty"`
-	ListenPort   *int                            `json:"listenPort,omitempty"`
-	Peers        []PeerStatus                    `json:"peers"`
-	Addresses    []NetlinkInterfaceAddressStatus `json:"addresses"`
+	PublicKey  string                          `json:"publicKey"`
+	ListenPort *int                            `json:"listenPort,omitempty"`
+	Peers      []PeerStatus                    `json:"peers"`
+	Addresses  []NetlinkInterfaceAddressStatus `json:"addresses"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -178,7 +182,7 @@ func (wgi *WireGuardInterfaceAddressSpec) MakeNetlinkAddrObject() (*netlink.Addr
 	}
 
 	bits := 32
-	if family == "inet6" {
+	if family == InetFamilyInet6 {
 		bits = 128
 	}
 
