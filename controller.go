@@ -385,7 +385,24 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		}
 
 		for peerIdx, peer := range wgObj.Spec.Peers {
-			wgPeerConf, err := peer.ToZX2c4WGPeerConf(nil)
+			var presharedKey *string = nil
+
+			if peer.PresharedKeySecretRef != nil {
+				pskSecret := peer.PresharedKeySecretRef
+				pskNs := "default"
+				if pskSecret.Namespace != nil && *pskSecret.Namespace != "" {
+					pskNs = *pskSecret.Namespace
+				}
+
+				psk, err := c.getSecretValue(pskNs, pskSecret.Name, pskSecret.Key)
+				if err != nil {
+					return fmt.Errorf("failed to get preshared key: %s, peerIdx: %d, peer publicKey: %s", err.Error(), peerIdx, peer.PublicKey)
+				}
+				pskStr := string(psk)
+				presharedKey = &pskStr
+			}
+
+			wgPeerConf, err := peer.ToZX2c4WGPeerConf(presharedKey)
 			if err != nil {
 				return fmt.Errorf("failed to convert wgi peer spec to zx2c4 wg peer conf: %s, peerIdx: %d", err.Error(), peerIdx)
 			}
