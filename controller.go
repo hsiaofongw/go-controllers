@@ -521,20 +521,21 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 
 		// Convert addresses
 		for _, addr := range addrs {
-			family := networkingv1alpha1.InetFamilyInet6
-			if addr.IPNet.IP.To4() != nil {
-				family = networkingv1alpha1.InetFamilyInet
-			}
+
 			ones, _ := addr.IPNet.Mask.Size()
 			addrStatus := networkingv1alpha1.NetlinkInterfaceAddressStatus{
-				Family:    family,
+				Family:    networkingv1alpha1.InetFamilyInet6,
 				Local:     addr.IPNet.String(),
 				Prefixlen: ones,
 			}
 
-			if addr.IP != nil {
-				addrStr := addr.IP.String()
-				addrStatus.Address = &addrStr
+			if addr.IP.To4() != nil {
+				addrStatus.Family = networkingv1alpha1.InetFamilyInet
+			}
+
+			if addr.Peer != nil {
+				peerAddr := addr.Peer.String()
+				addrStatus.Address = &peerAddr
 			}
 
 			addressStatuses = append(addressStatuses, addrStatus)
@@ -577,7 +578,9 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 		return nil
 	}
 
-	c.getCurrentWGInterface(interfaceName, containerPid, netlinkHook, wgHook)
+	if err := c.getCurrentWGInterface(interfaceName, containerPid, netlinkHook, wgHook); err != nil {
+		return nil, fmt.Errorf("failed to get current WireGuard interface: %s", err.Error())
+	}
 
 	return status, nil
 }
