@@ -74,7 +74,7 @@ const (
 
 // Controller is the controller implementation for Foo resources
 type Controller struct {
-	hostname     string
+	nodename     string
 	dockerClient *dockerSDK.Client
 	// kubeclientset is a standard kubernetes clientset
 	kubeclientset kubernetes.Interface
@@ -98,7 +98,7 @@ type Controller struct {
 }
 
 type ControllerConfig struct {
-	Hostname        string
+	Nodename        string
 	Kubeclientset   kubernetes.Interface
 	Sampleclientset clientset.Interface
 	WgInformer      wginformers.WireGuardInterfaceInformer
@@ -134,7 +134,7 @@ func NewController(
 	}
 
 	controller := &Controller{
-		hostname:        config.Hostname,
+		nodename:        config.Nodename,
 		dockerClient:    dockerClient,
 		kubeclientset:   config.Kubeclientset,
 		sampleclientset: config.Sampleclientset,
@@ -178,8 +178,14 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	defer c.workqueue.ShutDown()
 	logger := klog.FromContext(ctx)
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		logger.Error(err, "Error getting hostname")
+		return nil
+	}
+
 	// Start the informer factories to begin populating the informer caches
-	logger.Info("Starting controller", "hostname", c.hostname)
+	logger.Info("Starting controller", "nodename", c.nodename, "hostname", hostname)
 
 	// Wait for the caches to be synced before starting workers
 	logger.Info("Waiting for informer caches to sync")
@@ -487,7 +493,7 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	}
 
 	// Update the status
-	wgObjCopy.Status = *status.DeepCopy()
+	wgObjCopy.Status = *status
 
 	// Use UpdateStatus to update only the Status block of the WireGuardInterface resource
 	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
@@ -502,15 +508,25 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 // getCurrentWireGuardStatus retrieves the current status of a WireGuard interface
 func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPid *int) (*networkingv1alpha1.WireGuardInterfaceStatus, error) {
 
-	// Build status
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get hostname: %s", err.Error())
+	}
+
 	status := &networkingv1alpha1.WireGuardInterfaceStatus{
 		PublicKey:  "",
 		ListenPort: nil,
 		Addresses:  nil,
 		Peers:      nil,
+		MTU:        nil,
+		Hostname:   hostname,
+		Nodename:   c.nodename,
 	}
 
 	netlinkHook := func(handle *netlink.Handle, wgLink netlink.Link) error {
+		mtu := wgLink.Attrs().MTU
+		status.MTU = &mtu
+
 		addrs, err := handle.AddrList(wgLink, netlink.FAMILY_ALL)
 		if err != nil {
 			return fmt.Errorf("failed to get addresses: %s", err.Error())
@@ -731,8 +747,9 @@ func (c *Controller) createNewWGInterface(
 }
 
 func (c *Controller) getThisHostname() (string, error) {
-	if c.hostname != "" {
-		return c.hostname, nil
+
+	if c.nodename != "" {
+		return c.nodename, nil
 	}
 
 	hostname, err := os.Hostname()

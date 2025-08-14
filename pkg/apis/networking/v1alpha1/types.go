@@ -108,10 +108,19 @@ type PeerStatus struct {
 }
 
 type WireGuardInterfaceStatus struct {
+	//  Hostname of the node where the interface is provisioned,
+	// or the hostname of the host of the container in case of containerization.
+	// This is used to identify the node where the interface is provisioned.
+	Hostname string `json:"hostname"`
+
+	// Node name where the interface is provisioned.
+	// The node name can be overridden by the operator running on the node.
+	Nodename   string                          `json:"nodename"`
 	PublicKey  string                          `json:"publicKey"`
 	ListenPort *int                            `json:"listenPort,omitempty"`
 	Peers      []PeerStatus                    `json:"peers"`
 	Addresses  []NetlinkInterfaceAddressStatus `json:"addresses"`
+	MTU        *int                            `json:"mtu,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

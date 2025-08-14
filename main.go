@@ -38,7 +38,7 @@ var (
 	kubeconfig          string
 	numWorkers          int
 	defaultResyncPeriod int
-	hostname            string
+	nodename            string
 )
 
 func main() {
@@ -71,7 +71,7 @@ func main() {
 	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*time.Duration(defaultResyncPeriod))
 
 	controllerConfig := ControllerConfig{
-		Hostname:        hostname,
+		Nodename:        nodename,
 		Kubeclientset:   kubeClient,
 		Sampleclientset: exampleClient,
 		WgInformer:      exampleInformerFactory.Networking().V1alpha1().WireGuardInterfaces(),
@@ -95,5 +95,5 @@ func init() {
 	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 	flag.IntVar(&numWorkers, "num-workers", 1, "The number of workers to run.")
 	flag.IntVar(&defaultResyncPeriod, "default-resync-period", 30, "The default resync period in seconds.")
-	flag.StringVar(&hostname, "hostname", "", "The hostname of the node.")
+	flag.StringVar(&nodename, "nodename", "", "The advertised nodename of this node.")
 }
