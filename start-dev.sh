@@ -8,4 +8,4 @@ cd "$scriptDir"
 ./bin/controller \
     --kubeconfig=/root/.kube/config \
     -v 4 \
-    --hostname=lax1
+    --nodename=lax1

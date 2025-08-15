@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net"
 	"time"
@@ -205,21 +206,23 @@ func (wgi *WireGuardInterfaceAddressSpec) MakeNetlinkAddrObject() (*netlink.Addr
 }
 
 func (wgi *WireGuardInterfaceSpec) ToZX2c4WGConf(privateKey *string) (*wgtypes.Config, error) {
+	if privateKey == nil || *privateKey == "" {
+		return nil, fmt.Errorf("private key is required")
+	}
+
 	wgConf := new(wgtypes.Config)
 	if wgi.ListenPort != 0 {
 		wgConf.ListenPort = &wgi.ListenPort
 	}
 
 	wgConf.PrivateKey = nil
-	if privateKey != nil && *privateKey != "" {
-		if privKeyObj, err := wgtypes.ParseKey(*privateKey); err == nil {
-			wgConf.PrivateKey = &privKeyObj
-		}
+	privKeyStr := base64.StdEncoding.EncodeToString([]byte(*privateKey))
+	privKeyObj, err := wgtypes.ParseKey(privKeyStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to obtain the private key, either not provided or invalid: %s", err.Error())
 	}
 
-	if wgConf.PrivateKey == nil {
-		return nil, fmt.Errorf("Failed to obtain the private key, either not provided or invalid")
-	}
+	wgConf.PrivateKey = &privKeyObj
 
 	return wgConf, nil
 }

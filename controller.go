@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"time"
@@ -138,11 +139,16 @@ func NewController(
 
 	// Set up an event handler for when WireGuardInterface resources change
 	config.WgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.enqueueWG,
+		AddFunc: func(obj interface{}) {
+			metaObj, _ := obj.(metav1.Object)
+			logger.Info("Adding WireGuardInterface", "objectReference", klog.KObj(metaObj))
+			controller.enqueueWG(obj)
+		},
 		UpdateFunc: func(old, new interface{}) {
 			oldWG := old.(*networkingv1alpha1.WireGuardInterface)
 			newWG := new.(*networkingv1alpha1.WireGuardInterface)
-			if newWG.ResourceVersion != oldWG.ResourceVersion {
+			logger.Info("Updating WireGuardInterface", "objectReference", klog.KObj(newWG))
+			if newWG.ResourceVersion != oldWG.ResourceVersion || newWG.GetDeletionTimestamp() != nil {
 				controller.enqueueWG(new)
 			} else {
 				if err := controller.updateWireGuardInterfaceStatus(context.Background(), newWG); err != nil {
@@ -152,6 +158,11 @@ func NewController(
 				}
 			}
 		},
+		// DeleteFunc: func(obj interface{}) {
+		// 	metaObj, _ := obj.(metav1.Object)
+		// 	logger.Info("Deleting WireGuardInterface", "objectReference", klog.KObj(metaObj))
+		// 	controller.enqueueWG(obj)
+		// },
 	})
 
 	return controller
@@ -261,11 +272,9 @@ func (c *Controller) enqueueWG(obj interface{}) {
 func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName) error {
 	logger := klog.LoggerWithValues(klog.FromContext(ctx), "objectRef", objectRef)
 
-	var object metav1.Object
-
 	logger.V(4).Info("Processing wgi object creation", "object", objectRef.Name)
 
-	wgObj, err := c.wgLister.Get(object.GetName())
+	wgObj, err := c.wgLister.Get(objectRef.Name)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			utilruntime.HandleErrorWithContext(ctx, err, "WireGuardInterface referenced by item in work queue no longer exists", "objectReference", objectRef)
@@ -404,7 +413,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 				if err != nil {
 					return fmt.Errorf("failed to get preshared key: %s, peerIdx: %d, peer publicKey: %s", err.Error(), peerIdx, peer.PublicKey)
 				}
-				pskStr := string(psk)
+				pskStr := base64.StdEncoding.EncodeToString(psk)
 				presharedKey = &pskStr
 			}
 
@@ -438,7 +447,10 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	})
 
 	if err != nil {
-		if !k8serrors.IsNotFound(err) {
+
+		_, ok := err.(netlink.LinkNotFoundError)
+		if !ok {
+			fmt.Printf("err obj: %v\n", err)
 			return fmt.Errorf("failed to get current WireGuard interface: %s", err.Error())
 		}
 
@@ -616,7 +628,7 @@ func (c *Controller) tryDeleteInterfaceIfExists(interfaceName string, pid *int) 
 	return c.getCurrentWGInterface(interfaceName, pid, func(handle *netlink.Handle, wgLink netlink.Link) error {
 		link, err := handle.LinkByName(interfaceName)
 		if err != nil {
-			if _, ok := err.(*netlink.LinkNotFoundError); ok {
+			if _, ok := err.(netlink.LinkNotFoundError); ok {
 				return nil
 			}
 
