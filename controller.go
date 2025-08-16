@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -139,11 +140,7 @@ func NewController(
 
 	// Set up an event handler for when WireGuardInterface resources change
 	config.WgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			metaObj, _ := obj.(metav1.Object)
-			logger.Info("Adding WireGuardInterface", "objectReference", klog.KObj(metaObj))
-			controller.enqueueWG(obj)
-		},
+		AddFunc: controller.enqueueWG,
 		UpdateFunc: func(old, new interface{}) {
 			oldWG := old.(*networkingv1alpha1.WireGuardInterface)
 			newWG := new.(*networkingv1alpha1.WireGuardInterface)
@@ -158,11 +155,6 @@ func NewController(
 				}
 			}
 		},
-		// DeleteFunc: func(obj interface{}) {
-		// 	metaObj, _ := obj.(metav1.Object)
-		// 	logger.Info("Deleting WireGuardInterface", "objectReference", klog.KObj(metaObj))
-		// 	controller.enqueueWG(obj)
-		// },
 	})
 
 	return controller
@@ -301,14 +293,18 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		// clear all finalizers from the object
 		err := c.tryDeleteInterfaceIfExists(wgObj.Spec.InterfaceName, nil)
 		if err != nil {
-			return fmt.Errorf("failed to delete interface: %s", err.Error())
+			if _, ok := err.(netlink.LinkNotFoundError); !ok {
+				return fmt.Errorf("failed to delete interface: %s", err.Error())
+			}
 		}
 
 		wgObjCopy := wgObj.DeepCopy()
 		wgObjCopy.SetFinalizers([]string{})
 		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Update(context.Background(), wgObjCopy, metav1.UpdateOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to clear finalizers from WireGuardInterface, will retry: %s", err.Error())
+			if !k8serrors.IsNotFound(err) {
+				return fmt.Errorf("failed to clear finalizers from WireGuardInterface, will retry: %s", err.Error())
+			}
 		}
 
 		return nil
@@ -442,6 +438,8 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return fmt.Errorf("failed to get interface pid: %s", err.Error())
 	}
 
+	logger.V(4).Info("container pid", pid)
+
 	err = c.getCurrentWGInterface(wgObj.Spec.InterfaceName, pid, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
 		return wgconfigurator(wgCtrlCli, true)
 	})
@@ -514,13 +512,10 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 	}
 
 	status := &networkingv1alpha1.WireGuardInterfaceStatus{
-		PublicKey:  "",
-		ListenPort: nil,
-		Addresses:  nil,
-		Peers:      nil,
-		MTU:        nil,
-		Hostname:   hostname,
-		Nodename:   c.nodename,
+		DeviceStatus: nil,
+		MTU:          nil,
+		Hostname:     hostname,
+		Nodename:     c.nodename,
 	}
 
 	netlinkHook := func(handle *netlink.Handle, wgLink netlink.Link) error {
@@ -564,32 +559,12 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 	wgHook := func(wgCtrlCli *wgctrl.Client) error {
 		device, err := wgCtrlCli.Device(interfaceName)
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("device %s does not exist: %s", interfaceName, err.Error())
+			}
 			return fmt.Errorf("failed to get device: %s", err.Error())
 		}
-
-		status.PublicKey = device.PublicKey.String()
-		status.ListenPort = &device.ListenPort
-
-		peerStatuses := make([]networkingv1alpha1.PeerStatus, len(device.Peers))
-		for _, peer := range device.Peers {
-			peerStatus := networkingv1alpha1.PeerStatus{
-				PublicKey: peer.PublicKey.String(),
-			}
-
-			if peer.Endpoint != nil {
-				endpointStr := peer.Endpoint.String()
-				peerStatus.Endpoint = &endpointStr
-			}
-
-			if !peer.LastHandshakeTime.IsZero() {
-				handshakeTime := peer.LastHandshakeTime.Unix()
-				peerStatus.LatestHandshake = &handshakeTime
-			}
-
-			peerStatuses = append(peerStatuses, peerStatus)
-		}
-		status.Peers = peerStatuses
-
+		status.DeviceStatus = networkingv1alpha1.NewDeviceStatus(device)
 		return nil
 	}
 
@@ -629,13 +604,17 @@ func (c *Controller) tryDeleteInterfaceIfExists(interfaceName string, pid *int) 
 		link, err := handle.LinkByName(interfaceName)
 		if err != nil {
 			if _, ok := err.(netlink.LinkNotFoundError); ok {
-				return nil
+				return err
 			}
 
-			return fmt.Errorf("failed to get link: %s", err.Error())
+			return fmt.Errorf("failed to get link for deletion: %s", err.Error())
 		}
 
 		if err := handle.LinkDel(link); err != nil {
+			if _, ok := err.(netlink.LinkNotFoundError); ok {
+				return err
+			}
+
 			return fmt.Errorf("failed to delete link: %s", err.Error())
 		}
 
@@ -645,7 +624,7 @@ func (c *Controller) tryDeleteInterfaceIfExists(interfaceName string, pid *int) 
 
 // find then configure the existing WireGuard interface
 func (c *Controller) getCurrentWGInterface(interfaceName string, pid *int, ipconfigurator func(handle *netlink.Handle, wgLink netlink.Link) error, wgconfigurator func(wgCtrlCli *wgctrl.Client) error) error {
-	return c.getNetlinkHandleFor(pid, func(handle *netlink.Handle) error {
+	return withNetlinkHandle(pid, func(handle *netlink.Handle) error {
 		link, err := handle.LinkByName(interfaceName)
 		if err != nil {
 			return err
@@ -657,22 +636,26 @@ func (c *Controller) getCurrentWGInterface(interfaceName string, pid *int, ipcon
 		}
 
 		if wgconfigurator != nil {
-			wgCtrlCli, err := wgctrl.New()
-			if err != nil {
-				return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
-			}
-			defer wgCtrlCli.Close()
+			return withNetns(pid, func() error {
+				wgCtrlCli, err := wgctrl.New()
+				if err != nil {
+					return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
+				}
+				defer wgCtrlCli.Close()
 
-			if err := wgconfigurator(wgCtrlCli); err != nil {
-				return fmt.Errorf("failed at wgctrl client hook: %s", err.Error())
-			}
+				if err := wgconfigurator(wgCtrlCli); err != nil {
+					return fmt.Errorf("failed at wgctrl client hook: %s", err.Error())
+				}
+				return nil
+			})
+
 		}
 
 		return nil
 	})
 }
 
-func (c *Controller) getNetlinkHandleFor(pid *int, hook func(handle *netlink.Handle) error) error {
+func withNetlinkHandle(pid *int, hook func(handle *netlink.Handle) error) error {
 	if pid == nil {
 		hostNsHandle, err := netlink.NewHandle()
 		if err != nil {
@@ -698,6 +681,29 @@ func (c *Controller) getNetlinkHandleFor(pid *int, hook func(handle *netlink.Han
 	}
 }
 
+func withNetns(containerPid *int, hook func() error) error {
+
+	if containerPid != nil {
+		nsHandle, err := netns.GetFromPid(*containerPid)
+		if err != nil {
+			return fmt.Errorf("failed to get netns from pid: %s", err.Error())
+		}
+		defer nsHandle.Close()
+
+		hostNsHandle, err := netns.Get()
+		if err != nil {
+			return fmt.Errorf("failed to get host netns: %s", err.Error())
+		}
+		defer hostNsHandle.Close()
+
+		netns.Set(nsHandle)
+		defer netns.Set(hostNsHandle)
+	}
+
+	return hook()
+
+}
+
 // create then configure the new WireGuard interface
 func (c *Controller) createNewWGInterface(
 	wgObj *networkingv1alpha1.WireGuardInterface,
@@ -712,7 +718,7 @@ func (c *Controller) createNewWGInterface(
 	wgLink := new(netlink.Wireguard)
 	wgLink.Attrs().Name = wgObj.Spec.InterfaceName
 
-	err = c.getNetlinkHandleFor(nil, func(handle *netlink.Handle) error {
+	err = withNetlinkHandle(nil, func(handle *netlink.Handle) error {
 		if err := handle.LinkAdd(wgLink); err != nil {
 			return fmt.Errorf("failed to add link: %s", err.Error())
 		}
