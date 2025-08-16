@@ -287,11 +287,16 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return nil
 	}
 
+	pid, err := c.getInterfacePid(&wgObj.Spec)
+	if err != nil {
+		return fmt.Errorf("failed to get interface pid: %s", err.Error())
+	}
+
 	deletionTime := wgObj.GetDeletionTimestamp()
 	if deletionTime != nil {
 		// Clean up underlying resources, then
 		// clear all finalizers from the object
-		err := c.tryDeleteInterfaceIfExists(wgObj.Spec.InterfaceName, nil)
+		err := c.tryDeleteInterfaceIfExists(wgObj.Spec.InterfaceName, pid)
 		if err != nil {
 			if _, ok := err.(netlink.LinkNotFoundError); !ok {
 				return fmt.Errorf("failed to delete interface: %s", err.Error())
@@ -431,11 +436,6 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		}
 
 		return wgCtrlCli.ConfigureDevice(wgObj.Spec.InterfaceName, *wgConf)
-	}
-
-	pid, err := c.getInterfacePid(&wgObj.Spec)
-	if err != nil {
-		return fmt.Errorf("failed to get interface pid: %s", err.Error())
 	}
 
 	logger.V(4).Info("container pid", pid)
@@ -689,7 +689,8 @@ func withNetns(containerPid *int, hook func() error) error {
 		}
 		defer nsHandle.Close()
 
-		hostNsHandle, err := netns.Get()
+		hostPid := os.Getpid()
+		hostNsHandle, err := netns.GetFromPid(hostPid)
 		if err != nil {
 			return fmt.Errorf("failed to get host netns: %s", err.Error())
 		}
@@ -700,7 +701,6 @@ func withNetns(containerPid *int, hook func() error) error {
 	}
 
 	return hook()
-
 }
 
 // create then configure the new WireGuard interface
