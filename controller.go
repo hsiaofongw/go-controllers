@@ -512,10 +512,9 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 	}
 
 	status := &networkingv1alpha1.WireGuardInterfaceStatus{
-		DeviceStatus: nil,
-		MTU:          nil,
-		Hostname:     hostname,
-		Nodename:     c.nodename,
+		MTU:      nil,
+		Hostname: hostname,
+		Nodename: c.nodename,
 	}
 
 	netlinkHook := func(handle *netlink.Handle, wgLink netlink.Link) error {
@@ -527,7 +526,7 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 			return fmt.Errorf("failed to get addresses: %s", err.Error())
 		}
 
-		addressStatuses := make([]networkingv1alpha1.NetlinkInterfaceAddressStatus, len(addrs))
+		addressStatuses := make([]networkingv1alpha1.NetlinkInterfaceAddressStatus, 0)
 
 		// Convert addresses
 		for _, addr := range addrs {
@@ -564,7 +563,7 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 			}
 			return fmt.Errorf("failed to get device: %s", err.Error())
 		}
-		status.DeviceStatus = networkingv1alpha1.NewDeviceStatus(device)
+		status.WireGuard = networkingv1alpha1.NewDeviceStatus(device)
 		return nil
 	}
 

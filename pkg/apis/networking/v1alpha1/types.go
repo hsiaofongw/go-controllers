@@ -115,10 +115,10 @@ type WireGuardInterfaceStatus struct {
 	Hostname string `json:"hostname"`
 	// Node name where the interface is provisioned.
 	// The node name can be overridden by the operator running on the node.
-	Nodename     string                          `json:"nodename"`
-	DeviceStatus *WireGuardDeviceStatus          `json:"deviceStatus,omitempty"`
-	MTU          *int                            `json:"mtu,omitempty"`
-	Addresses    []NetlinkInterfaceAddressStatus `json:"addresses,omitempty"`
+	Nodename  string                          `json:"nodename"`
+	WireGuard *WireGuardDeviceStatus          `json:"wireguard,omitempty"`
+	MTU       *int                            `json:"mtu,omitempty"`
+	Addresses []NetlinkInterfaceAddressStatus `json:"addresses,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

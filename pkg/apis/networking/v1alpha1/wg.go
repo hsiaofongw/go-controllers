@@ -104,7 +104,7 @@ type WireGuardPeerStatus struct {
 	// for this Peer.
 	//
 	// A value of 0 indicates that the most recent protocol version will be used.
-	ProtocolVersion int
+	ProtocolVersion int `json:"protocol_version,omitempty"`
 }
 
 func NewWireGuardPeerStatus(peer *wgtypes.Peer) *WireGuardPeerStatus {
@@ -122,7 +122,9 @@ func NewWireGuardPeerStatus(peer *wgtypes.Peer) *WireGuardPeerStatus {
 	pkl := peer.PersistentKeepaliveInterval.Milliseconds()
 	peerStatus.PersistentKeepaliveInterval = &pkl
 	lastHS := peer.LastHandshakeTime.UnixMilli()
-	peerStatus.LastHandshakeTime = &lastHS
+	if lastHS > 0 {
+		peerStatus.LastHandshakeTime = &lastHS
+	}
 	recvBytes := peer.ReceiveBytes
 	peerStatus.ReceiveBytes = &recvBytes
 	txBytes := peer.TransmitBytes
