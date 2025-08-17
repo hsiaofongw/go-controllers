@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// +kubebuilder:resource:shortName=nl;nli;nlif
 // +genclient
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -117,8 +118,9 @@ type NetlinkInterfaceStatus struct {
 	Hostname string `json:"hostname"`
 	// Node name where the interface is provisioned.
 	// The node name can be overridden by the operator running on the node.
-	Nodename string `json:"nodename"`
-	MTU      *int   `json:"mtu,omitempty"`
+	Nodename string                `json:"nodename"`
+	MTU      *int                  `json:"mtu,omitempty"`
+	Netlink  *NetlinkStatusWrapper `json:"netlink,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

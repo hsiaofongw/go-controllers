@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// +kubebuilder:resource:shortName=wg;wgi;wgif
 // +genclient
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -155,8 +156,38 @@ func NewFromNetlinkAddr(addr *netlink.Addr) NetlinkInterfaceAddressStatusWrapper
 	return addrWrapper
 }
 
+type NetlinkStatisticsWrapper struct {
+	netlink.LinkStatistics `json:"-"`
+
+	RxPackets uint64 `json:"rxPackets,omitempty"`
+	TxPackets uint64 `json:"txPackets,omitempty"`
+	RxBytes   uint64 `json:"rxBytes,omitempty"`
+	TxBytes   uint64 `json:"txBytes,omitempty"`
+	RxErrors  uint64 `json:"rxErrors,omitempty"`
+	TxErrors  uint64 `json:"txErrors,omitempty"`
+	RxDropped uint64 `json:"rxDropped,omitempty"`
+}
+
+func NewFromNetlinkLinkStatistics(stats *netlink.LinkStatistics) *NetlinkStatisticsWrapper {
+	if stats == nil {
+		return nil
+	}
+
+	return &NetlinkStatisticsWrapper{
+		LinkStatistics: *stats,
+		RxPackets:      stats.RxPackets,
+		TxPackets:      stats.TxPackets,
+		RxBytes:        stats.RxBytes,
+		TxBytes:        stats.TxBytes,
+		RxErrors:       stats.RxErrors,
+		TxErrors:       stats.TxErrors,
+		RxDropped:      stats.RxDropped,
+	}
+}
+
 type NetlinkStatusWrapper struct {
-	netlinkAttrs *netlink.LinkAttrs                     `json:"-"`
+	netlinkAttrs *netlink.LinkAttrs `json:"-"`
+
 	Index        int                                    `json:"index"`
 	MTU          int                                    `json:"mtu"`
 	Name         string                                 `json:"name"`
@@ -167,7 +198,7 @@ type NetlinkStatusWrapper struct {
 	MasterIndex  int                                    `json:"masterIndex,omitempty"`
 	Alias        string                                 `json:"alias,omitempty"`
 	AltNames     []string                               `json:"altNames,omitempty"`
-	Statistics   *netlink.LinkStatistics                `json:"statistics,omitempty"`
+	Statistics   *NetlinkStatisticsWrapper              `json:"statistics,omitempty"`
 	Addrs        []NetlinkInterfaceAddressStatusWrapper `json:"addrs,omitempty"`
 }
 
@@ -184,7 +215,7 @@ func NewFromNetlinkLinkAttrs(attrs *netlink.LinkAttrs, addrs []netlink.Addr) *Ne
 		MasterIndex:  attrs.MasterIndex,
 		Alias:        attrs.Alias,
 		AltNames:     attrs.AltNames,
-		Statistics:   attrs.Statistics,
+		Statistics:   NewFromNetlinkLinkStatistics(attrs.Statistics),
 	}
 
 	addrWrappers := make([]NetlinkInterfaceAddressStatusWrapper, 0)
