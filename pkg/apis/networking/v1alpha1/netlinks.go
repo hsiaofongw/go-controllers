@@ -46,17 +46,60 @@ type NetlinkInterfaceContainerSpec struct {
 	Docker *NetlinkInterfaceContainerDockerSpec `json:"docker,omitempty"`
 }
 
+type NetlinkInterfaceType string
+
+const (
+	NetlinkInterfaceTypeBridge NetlinkInterfaceType = "bridge"
+	NetlinkInterfaceTypeVeth   NetlinkInterfaceType = "veth"
+	NetlinkInterfaceTypeVxlan  NetlinkInterfaceType = "vxlan"
+	NetlinkInterfaceTypeDummy  NetlinkInterfaceType = "dummy"
+)
+
+type NetlinkInterfaceBridgeSpec struct {
+	InterfaceName string                         `json:"interfaceName"`
+	Container     *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
+	MTU           *int                           `json:"mtu,omitempty"`
+	Addresses     []NetlinkInterfaceAddressSpec  `json:"addresses,omitempty"`
+}
+
+type NetlinkInterfaceVxlanSpec struct {
+	InterfaceName string                         `json:"interfaceName"`
+	Container     *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
+	MTU           *int                           `json:"mtu,omitempty"`
+	Addresses     []NetlinkInterfaceAddressSpec  `json:"addresses,omitempty"`
+}
+
+type NetlinkInterfaceDummySpec struct {
+	InterfaceName string                         `json:"interfaceName"`
+	Container     *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
+	MTU           *int                           `json:"mtu,omitempty"`
+	Addresses     []NetlinkInterfaceAddressSpec  `json:"addresses,omitempty"`
+}
+
+type NetlinkInterfaceVethPeerSpec struct {
+	InterfaceName string                         `json:"interfaceName"`
+	Container     *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
+	Addresses     []NetlinkInterfaceAddressSpec  `json:"addresses,omitempty"`
+	MTU           *int                           `json:"mtu,omitempty"`
+
+	// Master is the name of the bridge interface to which the veth pair is connected.
+	Master *string `json:"master,omitempty"`
+}
+
+type NetlinkInterfaceVethSpec struct {
+	Local *NetlinkInterfaceVethPeerSpec `json:"localPeer,omitempty"`
+	Peer  *NetlinkInterfaceVethPeerSpec `json:"peerPeer,omitempty"`
+}
+
 // NetlinkInterfaceSpec is the spec for a NetlinkInterface resource
 type NetlinkInterfaceSpec struct {
-	Node                string                         `json:"node"`
-	MoveToContainer     bool                           `json:"moveToContainer"`
-	Container           *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
-	InterfaceName       string                         `json:"interfaceName"`
-	PrivateKeySecretRef *PrivateKeySecretRef           `json:"privateKeySecretRef,omitempty"`
-	Addresses           []NetlinkInterfaceAddressSpec  `json:"addresses"`
-	ListenPort          int                            `json:"listenPort"`
-	MTU                 *int                           `json:"mtu,omitempty"`
-	Peers               []WireGuardPeerSpec            `json:"peers"`
+	Node          string                      `json:"node"`
+	InterfaceName string                      `json:"interfaceName"`
+	Type          NetlinkInterfaceType        `json:"type"`
+	Bridge        *NetlinkInterfaceBridgeSpec `json:"bridge,omitempty"`
+	Vxlan         *NetlinkInterfaceVxlanSpec  `json:"vxlan,omitempty"`
+	Dummy         *NetlinkInterfaceDummySpec  `json:"dummy,omitempty"`
+	Veth          *NetlinkInterfaceVethSpec   `json:"veth,omitempty"`
 }
 
 type NetlinkInterfaceAddressSpec struct {
@@ -74,9 +117,8 @@ type NetlinkInterfaceStatus struct {
 	Hostname string `json:"hostname"`
 	// Node name where the interface is provisioned.
 	// The node name can be overridden by the operator running on the node.
-	Nodename  string                          `json:"nodename"`
-	MTU       *int                            `json:"mtu,omitempty"`
-	Addresses []NetlinkInterfaceAddressStatus `json:"addresses,omitempty"`
+	Nodename string `json:"nodename"`
+	MTU      *int   `json:"mtu,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
