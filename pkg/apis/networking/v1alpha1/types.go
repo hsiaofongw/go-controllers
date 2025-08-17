@@ -110,8 +110,6 @@ type PeerStatus struct {
 }
 
 type NetlinkInterfaceAddressStatusWrapper struct {
-	netlink.Addr `json:"-"`
-
 	Label       string     `json:"label,omitempty"`
 	Flags       int        `json:"flags,omitempty"`
 	Scope       int        `json:"scope,omitempty"`
@@ -126,9 +124,7 @@ type NetlinkInterfaceAddressStatusWrapper struct {
 }
 
 func NewFromNetlinkAddr(addr *netlink.Addr) NetlinkInterfaceAddressStatusWrapper {
-	addrWrapper := NetlinkInterfaceAddressStatusWrapper{
-		Addr: *addr,
-	}
+	addrWrapper := NetlinkInterfaceAddressStatusWrapper{}
 	if addr.IP.To4() != nil {
 		addrWrapper.Family = InetFamilyInet
 	} else {
@@ -186,8 +182,6 @@ func NewFromNetlinkLinkStatistics(stats *netlink.LinkStatistics) *NetlinkStatist
 }
 
 type NetlinkStatusWrapper struct {
-	netlinkAttrs *netlink.LinkAttrs `json:"-"`
-
 	Index        int                                    `json:"index"`
 	MTU          int                                    `json:"mtu"`
 	Name         string                                 `json:"name"`
@@ -204,7 +198,6 @@ type NetlinkStatusWrapper struct {
 
 func NewFromNetlinkLinkAttrs(attrs *netlink.LinkAttrs, addrs []netlink.Addr) *NetlinkStatusWrapper {
 	nlStatusWrapper := &NetlinkStatusWrapper{
-		netlinkAttrs: attrs,
 		Name:         attrs.Name,
 		Index:        attrs.Index,
 		MTU:          attrs.MTU,
