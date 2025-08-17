@@ -27,9 +27,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// +kubebuilder:resource:shortName=wg;wgi;wgif
 // +genclient
 // +genclient:nonNamespaced
+// +kubebuilder:resource:scope=Cluster,shortName=wg;wgi;wgif
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // WireGuardInterface is a specification for a WireGuardInterface resource

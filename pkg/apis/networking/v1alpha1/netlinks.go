@@ -20,9 +20,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// +kubebuilder:resource:shortName=nl;nli;nlif
 // +genclient
 // +genclient:nonNamespaced
+// +kubebuilder:resource:scope=Cluster,shortName=nl;nli;nlif
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // NetlinkInterface is a specification for a NetlinkInterface resource
