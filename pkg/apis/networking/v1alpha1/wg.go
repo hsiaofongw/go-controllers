@@ -3,7 +3,7 @@ package v1alpha1
 import "golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 // A Device is a WireGuard device.
-type WireGuardDeviceStatus struct {
+type WireGuardStatusWrapper struct {
 	// Name is the name of the device.
 	Name string `json:"name"`
 
@@ -29,12 +29,12 @@ type WireGuardDeviceStatus struct {
 	Peers []*WireGuardPeerStatus `json:"peers"`
 }
 
-func NewDeviceStatus(dev *wgtypes.Device) *WireGuardDeviceStatus {
+func NewWireGuardStatusWrapper(dev *wgtypes.Device) *WireGuardStatusWrapper {
 	if dev == nil {
 		return nil
 	}
 
-	devStatus := new(WireGuardDeviceStatus)
+	devStatus := new(WireGuardStatusWrapper)
 	devStatus.Name = dev.Name
 	devStatus.Type = dev.Type
 	privKey := dev.PrivateKey.String()

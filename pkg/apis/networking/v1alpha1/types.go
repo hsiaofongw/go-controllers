@@ -108,6 +108,94 @@ type PeerStatus struct {
 	Endpoint        *string `json:"endpoint,omitempty"`
 }
 
+type NetlinkInterfaceAddressStatusWrapper struct {
+	netlink.Addr `json:"-"`
+
+	Label       string     `json:"label,omitempty"`
+	Flags       int        `json:"flags,omitempty"`
+	Scope       int        `json:"scope,omitempty"`
+	Local       string     `json:"local,omitempty"`
+	Peer        *string    `json:"peer,omitempty"`
+	Broadcast   string     `json:"broadcast,omitempty"`
+	PreferedLft int        `json:"preferedLft,omitempty"`
+	ValidLft    int        `json:"validLft,omitempty"`
+	Family      InetFamily `json:"family,omitempty"`
+	LinkIndex   int        `json:"linkIndex,omitempty"`
+	Prefixlen   int        `json:"prefixlen,omitempty"`
+}
+
+func NewFromNetlinkAddr(addr *netlink.Addr) NetlinkInterfaceAddressStatusWrapper {
+	addrWrapper := NetlinkInterfaceAddressStatusWrapper{
+		Addr: *addr,
+	}
+	if addr.IP.To4() != nil {
+		addrWrapper.Family = InetFamilyInet
+	} else {
+		addrWrapper.Family = InetFamilyInet6
+	}
+	addrWrapper.Local = addr.IP.String()
+	if addr.Peer != nil {
+		peer := addr.Peer.String()
+		addrWrapper.Peer = &peer
+	}
+
+	broadcast := addr.Broadcast.String()
+	addrWrapper.Broadcast = broadcast
+
+	addrWrapper.Label = addr.Label
+	addrWrapper.Flags = addr.Flags
+	addrWrapper.Scope = addr.Scope
+	addrWrapper.PreferedLft = addr.PreferedLft
+	addrWrapper.ValidLft = addr.ValidLft
+	addrWrapper.LinkIndex = addr.LinkIndex
+	mask := addr.IPNet.Mask
+	ones, _ := mask.Size()
+	addrWrapper.Prefixlen = ones
+
+	return addrWrapper
+}
+
+type NetlinkStatusWrapper struct {
+	netlinkAttrs *netlink.LinkAttrs                     `json:"-"`
+	Index        int                                    `json:"index"`
+	MTU          int                                    `json:"mtu"`
+	Name         string                                 `json:"name"`
+	HardwareAddr string                                 `json:"hardwareAddr,omitempty"`
+	Flags        net.Flags                              `json:"flags,omitempty"`
+	RawFlags     uint32                                 `json:"rawFlags,omitempty"`
+	ParentIndex  int                                    `json:"parentIndex,omitempty"`
+	MasterIndex  int                                    `json:"masterIndex,omitempty"`
+	Alias        string                                 `json:"alias,omitempty"`
+	AltNames     []string                               `json:"altNames,omitempty"`
+	Statistics   *netlink.LinkStatistics                `json:"statistics,omitempty"`
+	Addrs        []NetlinkInterfaceAddressStatusWrapper `json:"addrs,omitempty"`
+}
+
+func NewFromNetlinkLinkAttrs(attrs *netlink.LinkAttrs, addrs []netlink.Addr) *NetlinkStatusWrapper {
+	nlStatusWrapper := &NetlinkStatusWrapper{
+		netlinkAttrs: attrs,
+		Name:         attrs.Name,
+		Index:        attrs.Index,
+		MTU:          attrs.MTU,
+		HardwareAddr: attrs.HardwareAddr.String(),
+		Flags:        attrs.Flags,
+		RawFlags:     attrs.RawFlags,
+		ParentIndex:  attrs.ParentIndex,
+		MasterIndex:  attrs.MasterIndex,
+		Alias:        attrs.Alias,
+		AltNames:     attrs.AltNames,
+		Statistics:   attrs.Statistics,
+	}
+
+	addrWrappers := make([]NetlinkInterfaceAddressStatusWrapper, 0)
+	for _, addr := range addrs {
+		addrWrappers = append(addrWrappers, NewFromNetlinkAddr(&addr))
+	}
+	nlStatusWrapper.Addrs = addrWrappers
+
+	return nlStatusWrapper
+}
+
 type WireGuardInterfaceStatus struct {
 	//  Hostname of the node where the interface is provisioned,
 	// or the hostname of the host of the container in case of containerization.
@@ -115,10 +203,10 @@ type WireGuardInterfaceStatus struct {
 	Hostname string `json:"hostname"`
 	// Node name where the interface is provisioned.
 	// The node name can be overridden by the operator running on the node.
-	Nodename  string                          `json:"nodename"`
-	WireGuard *WireGuardDeviceStatus          `json:"wireguard,omitempty"`
-	MTU       *int                            `json:"mtu,omitempty"`
-	Addresses []NetlinkInterfaceAddressStatus `json:"addresses,omitempty"`
+	Nodename  string                  `json:"nodename"`
+	WireGuard *WireGuardStatusWrapper `json:"wireguard,omitempty"`
+	MTU       *int                    `json:"mtu,omitempty"`
+	Netlink   *NetlinkStatusWrapper   `json:"netlink,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

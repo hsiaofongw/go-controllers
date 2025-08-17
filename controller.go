@@ -521,36 +521,12 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 		mtu := wgLink.Attrs().MTU
 		status.MTU = &mtu
 
-		addrs, err := handle.AddrList(wgLink, netlink.FAMILY_ALL)
+		addrObjs, err := handle.AddrList(wgLink, netlink.FAMILY_ALL)
 		if err != nil {
 			return fmt.Errorf("failed to get addresses: %s", err.Error())
 		}
 
-		addressStatuses := make([]networkingv1alpha1.NetlinkInterfaceAddressStatus, 0)
-
-		// Convert addresses
-		for _, addr := range addrs {
-
-			ones, _ := addr.IPNet.Mask.Size()
-			addrStatus := networkingv1alpha1.NetlinkInterfaceAddressStatus{
-				Family:    networkingv1alpha1.InetFamilyInet6,
-				Local:     addr.String(),
-				Prefixlen: ones,
-			}
-
-			if addr.IP.To4() != nil {
-				addrStatus.Family = networkingv1alpha1.InetFamilyInet
-			}
-
-			if addr.Peer != nil {
-				peerAddr := addr.Peer.String()
-				addrStatus.Address = &peerAddr
-			}
-
-			addressStatuses = append(addressStatuses, addrStatus)
-		}
-
-		status.Addresses = addressStatuses
+		status.Netlink = networkingv1alpha1.NewFromNetlinkLinkAttrs(wgLink.Attrs(), addrObjs)
 
 		return nil
 	}
@@ -563,7 +539,7 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 			}
 			return fmt.Errorf("failed to get device: %s", err.Error())
 		}
-		status.WireGuard = networkingv1alpha1.NewDeviceStatus(device)
+		status.WireGuard = networkingv1alpha1.NewWireGuardStatusWrapper(device)
 		return nil
 	}
 
