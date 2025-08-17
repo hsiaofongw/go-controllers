@@ -28,6 +28,10 @@ type FakeNetworkingV1alpha1 struct {
 	*testing.Fake
 }
 
+func (c *FakeNetworkingV1alpha1) NetlinkInterfaces() v1alpha1.NetlinkInterfaceInterface {
+	return newFakeNetlinkInterfaces(c)
+}
+
 func (c *FakeNetworkingV1alpha1) WireGuardInterfaces() v1alpha1.WireGuardInterfaceInterface {
 	return newFakeWireGuardInterfaces(c)
 }

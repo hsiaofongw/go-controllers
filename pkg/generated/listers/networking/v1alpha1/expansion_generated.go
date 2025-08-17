@@ -18,6 +18,10 @@ limitations under the License.
 
 package v1alpha1
 
+// NetlinkInterfaceListerExpansion allows custom methods to be added to
+// NetlinkInterfaceLister.
+type NetlinkInterfaceListerExpansion interface{}
+
 // WireGuardInterfaceListerExpansion allows custom methods to be added to
 // WireGuardInterfaceLister.
 type WireGuardInterfaceListerExpansion interface{}

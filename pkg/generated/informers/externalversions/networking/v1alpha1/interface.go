@@ -24,6 +24,8 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
+	// NetlinkInterfaces returns a NetlinkInterfaceInformer.
+	NetlinkInterfaces() NetlinkInterfaceInformer
 	// WireGuardInterfaces returns a WireGuardInterfaceInformer.
 	WireGuardInterfaces() WireGuardInterfaceInformer
 }
@@ -37,6 +39,11 @@ type version struct {
 // New returns a new Interface.
 func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakListOptions internalinterfaces.TweakListOptionsFunc) Interface {
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
+}
+
+// NetlinkInterfaces returns a NetlinkInterfaceInformer.
+func (v *version) NetlinkInterfaces() NetlinkInterfaceInformer {
+	return &netlinkInterfaceInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // WireGuardInterfaces returns a WireGuardInterfaceInformer.
