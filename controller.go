@@ -144,10 +144,11 @@ func NewController(
 		UpdateFunc: func(old, new interface{}) {
 			oldWG := old.(*networkingv1alpha1.WireGuardInterface)
 			newWG := new.(*networkingv1alpha1.WireGuardInterface)
-			logger.Info("Updating WireGuardInterface", "objectReference", klog.KObj(newWG))
 			if newWG.ResourceVersion != oldWG.ResourceVersion || newWG.GetDeletionTimestamp() != nil {
+				logger.Info("Updating WireGuardInterface due to resourceVersion changed", "objectReference", klog.KObj(newWG))
 				controller.enqueueWG(new)
 			} else {
+				logger.Info("Updating WireGuardInterface due to force resync", "objectReference", klog.KObj(newWG))
 				if err := controller.updateWireGuardInterfaceStatus(context.Background(), newWG); err != nil {
 					logger.Error(err, "Failed to update WireGuardInterface status", "objectReference", newWG.Name, "object is enqueued, and will retry later")
 					// if failed to update status, enqueue the object for a later retry, otherwise we'll have to wait for the next resync.
@@ -494,9 +495,10 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	wgObjCopy.Status = *status
 
 	// Use UpdateStatus to update only the Status block of the WireGuardInterface resource
-	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
+	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{})
+
 	if err != nil {
-		return fmt.Errorf("failed to update WireGuard interface status: %s", err.Error())
+		return fmt.Errorf("failed to update status: %s", err.Error())
 	}
 
 	logger.V(4).Info("Updated WireGuard interface status", "interfaceName", wgObj.Spec.InterfaceName)

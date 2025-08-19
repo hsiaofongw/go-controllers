@@ -27,17 +27,20 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster,shortName=wgi;wgif
 // +genclient
 // +genclient:nonNamespaced
-// +kubebuilder:resource:scope=Cluster,shortName=wg;wgi;wgif
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // WireGuardInterface is a specification for a WireGuardInterface resource
 type WireGuardInterface struct {
 	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.ObjectMeta `json:"metadata"`
 
 	Spec   WireGuardInterfaceSpec   `json:"spec"`
+
+	// +optional
 	Status WireGuardInterfaceStatus `json:"status"`
 }
 
