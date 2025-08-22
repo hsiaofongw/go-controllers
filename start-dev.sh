@@ -5,7 +5,7 @@ scriptDir=$(dirname $scriptPath)
 
 cd "$scriptDir"
 
-./bin/controller \
+./bin/wg-controller \
     --kubeconfig=/root/.kube/config \
     -v 4 \
     --nodename=lax1
