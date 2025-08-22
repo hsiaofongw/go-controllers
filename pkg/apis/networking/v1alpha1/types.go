@@ -237,6 +237,9 @@ type WireGuardInterfaceStatus struct {
 	WireGuard *WireGuardStatusWrapper `json:"wireguard,omitempty"`
 	MTU       *int                    `json:"mtu,omitempty"`
 	Netlink   *NetlinkStatusWrapper   `json:"netlink,omitempty"`
+
+	// The most recent generation observed by the controller.
+	ObservedGeneration int64 `json:"observedGeneration"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

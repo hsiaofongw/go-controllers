@@ -154,7 +154,24 @@ func NewController(
 		UpdateFunc: func(old, new interface{}) {
 			oldWG := old.(*networkingv1alpha1.WireGuardInterface)
 			newWG := new.(*networkingv1alpha1.WireGuardInterface)
-			if newWG.ResourceVersion != oldWG.ResourceVersion && newWG.GetGeneration() != oldWG.GetGeneration() {
+
+			revisionChanged := newWG.ResourceVersion != oldWG.ResourceVersion
+			if revisionChanged {
+				logger.Info("Revision changed", "old", oldWG.ResourceVersion, "new", newWG.ResourceVersion, "objectReference", klog.KObj(newWG))
+			}
+
+			generationChanged := newWG.GetGeneration() != oldWG.GetGeneration()
+			if generationChanged {
+				logger.Info("Generation changed", "old", oldWG.GetGeneration(), "new", newWG.GetGeneration(), "objectReference", klog.KObj(newWG))
+			}
+
+			generationLagged := oldWG.Status.ObservedGeneration != newWG.GetGeneration()
+			if generationLagged {
+				// this is probably due to the controller went offline while the api-server is sending updates.
+				logger.Info("Generation lagged", "observedGeneration", oldWG.Status.ObservedGeneration, "new", newWG.GetGeneration(), "objectReference", klog.KObj(newWG))
+			}
+
+			if revisionChanged || generationChanged || generationLagged {
 				logger.Info("Updating WireGuardInterface due to both resourceVersion and generation are changed", "objectReference", klog.KObj(newWG))
 				controller.enqueueWG(new)
 			} else if newWG.GetDeletionTimestamp() != nil {
@@ -515,6 +532,9 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 		// Don't fail the entire sync if status update fails
 		return nil
 	}
+
+	// Every time the status is updated, track the `generation` field at that moment as well (hence the name "observedGeneration")
+	status.ObservedGeneration = wgObj.GetGeneration()
 
 	// Update the status
 	wgObjCopy.Status = *status

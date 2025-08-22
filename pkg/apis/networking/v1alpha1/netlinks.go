@@ -31,7 +31,7 @@ type NetlinkInterface struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   NetlinkInterfaceSpec   `json:"spec"`
+	Spec NetlinkInterfaceSpec `json:"spec"`
 
 	// +optional
 	Status NetlinkInterfaceStatus `json:"status"`
@@ -124,6 +124,9 @@ type NetlinkInterfaceStatus struct {
 	Nodename string                `json:"nodename"`
 	MTU      *int                  `json:"mtu,omitempty"`
 	Netlink  *NetlinkStatusWrapper `json:"netlink,omitempty"`
+
+	// The most recent generation observed by the controller.
+	ObservedGeneration int64 `json:"observedGeneration"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

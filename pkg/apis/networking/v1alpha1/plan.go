@@ -47,7 +47,7 @@ type WireGuardNetworkPlanUnderlaySpec struct {
 	Hostname string `json:"hostname"`
 
 	// Port range is where to allocate for the WireGuard ListenPort. Inclusive.
-	PortRange WireGuardNetworkPlanPortRangeSpec `json:"portRange"`
+	PortRange *WireGuardNetworkPlanPortRangeSpec `json:"portRange,omitempty"`
 }
 
 type WireGuardNetworkPlanNodeSpec struct {
@@ -96,6 +96,9 @@ type WireGuardNetworkPlanInterfaceStatus struct {
 // It never come up with the status by itself.
 type WireGuardNetworkPlanStatus struct {
 	Interfaces []WireGuardNetworkPlanInterfaceStatus `json:"interfaces,omitempty"`
+
+	// The most recent generation observed by the controller.
+	ObservedGeneration int64 `json:"observedGeneration"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
