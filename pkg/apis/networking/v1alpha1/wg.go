@@ -125,10 +125,10 @@ func NewWireGuardPeerStatus(peer *wgtypes.Peer) *WireGuardPeerStatus {
 	if lastHS > 0 {
 		peerStatus.LastHandshakeTime = &lastHS
 	}
-	recvBytes := peer.ReceiveBytes
-	peerStatus.ReceiveBytes = &recvBytes
-	txBytes := peer.TransmitBytes
-	peerStatus.TransmitBytes = &txBytes
+	// recvBytes := peer.ReceiveBytes
+	// peerStatus.ReceiveBytes = &recvBytes
+	// txBytes := peer.TransmitBytes
+	// peerStatus.TransmitBytes = &txBytes
 	allowedIPs := make([]string, 0)
 	for _, ip := range peer.AllowedIPs {
 		allowedIPs = append(allowedIPs, ip.String())

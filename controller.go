@@ -140,12 +140,19 @@ func NewController(
 
 	// Set up an event handler for when WireGuardInterface resources change
 	config.WgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.enqueueWG,
+		AddFunc: func(obj interface{}) {
+			objMeta, _ := obj.(metav1.Object)
+			logger.Info("Updating WireGuardInterface due to creation", "objectReference", klog.KObj(objMeta))
+			controller.enqueueWG(obj)
+		},
 		UpdateFunc: func(old, new interface{}) {
 			oldWG := old.(*networkingv1alpha1.WireGuardInterface)
 			newWG := new.(*networkingv1alpha1.WireGuardInterface)
-			if newWG.ResourceVersion != oldWG.ResourceVersion || newWG.GetDeletionTimestamp() != nil {
-				logger.Info("Updating WireGuardInterface due to resourceVersion changed", "objectReference", klog.KObj(newWG))
+			if newWG.ResourceVersion != oldWG.ResourceVersion && newWG.GetGeneration() != oldWG.GetGeneration() {
+				logger.Info("Updating WireGuardInterface due to both resourceVersion and generation are changed", "objectReference", klog.KObj(newWG))
+				controller.enqueueWG(new)
+			} else if newWG.GetDeletionTimestamp() != nil {
+				logger.Info("Updating WireGuardInterface due to deletion", "objectReference", klog.KObj(newWG))
 				controller.enqueueWG(new)
 			} else {
 				logger.Info("Updating WireGuardInterface due to force resync", "objectReference", klog.KObj(newWG))
@@ -449,7 +456,6 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 		_, ok := err.(netlink.LinkNotFoundError)
 		if !ok {
-			fmt.Printf("err obj: %v\n", err)
 			return fmt.Errorf("failed to get current WireGuard interface: %s", err.Error())
 		}
 
@@ -495,7 +501,7 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	wgObjCopy.Status = *status
 
 	// Use UpdateStatus to update only the Status block of the WireGuardInterface resource
-	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{})
+	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
 
 	if err != nil {
 		return fmt.Errorf("failed to update status: %s", err.Error())

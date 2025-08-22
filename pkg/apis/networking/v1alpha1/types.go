@@ -38,7 +38,7 @@ type WireGuardInterface struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
 
-	Spec   WireGuardInterfaceSpec   `json:"spec"`
+	Spec WireGuardInterfaceSpec `json:"spec"`
 
 	// +optional
 	Status WireGuardInterfaceStatus `json:"status"`
@@ -134,10 +134,6 @@ func NewFromNetlinkAddr(addr *netlink.Addr) NetlinkInterfaceAddressStatusWrapper
 		addrWrapper.Family = InetFamilyInet6
 	}
 	addrWrapper.Local = addr.IP.String()
-	if addr.Peer != nil {
-		peer := addr.Peer.String()
-		addrWrapper.Peer = &peer
-	}
 
 	broadcast := addr.Broadcast.String()
 	addrWrapper.Broadcast = broadcast
@@ -151,6 +147,13 @@ func NewFromNetlinkAddr(addr *netlink.Addr) NetlinkInterfaceAddressStatusWrapper
 	mask := addr.IPNet.Mask
 	ones, _ := mask.Size()
 	addrWrapper.Prefixlen = ones
+
+	if addr.Peer != nil {
+		peer := addr.Peer.String()
+		addrWrapper.Peer = &peer
+		ones, _ := addr.Peer.Mask.Size()
+		addrWrapper.Prefixlen = ones
+	}
 
 	return addrWrapper
 }
@@ -211,7 +214,7 @@ func NewFromNetlinkLinkAttrs(attrs *netlink.LinkAttrs, addrs []netlink.Addr) *Ne
 		MasterIndex:  attrs.MasterIndex,
 		Alias:        attrs.Alias,
 		AltNames:     attrs.AltNames,
-		Statistics:   NewFromNetlinkLinkStatistics(attrs.Statistics),
+		// Statistics:   NewFromNetlinkLinkStatistics(attrs.Statistics),
 	}
 
 	addrWrappers := make([]NetlinkInterfaceAddressStatusWrapper, 0)
