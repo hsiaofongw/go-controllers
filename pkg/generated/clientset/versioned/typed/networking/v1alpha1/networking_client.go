@@ -30,6 +30,7 @@ type NetworkingV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	NetlinkInterfacesGetter
 	WireGuardInterfacesGetter
+	WireGuardNetworkPlansGetter
 }
 
 // NetworkingV1alpha1Client is used to interact with features provided by the networking.dn42.io group.
@@ -43,6 +44,10 @@ func (c *NetworkingV1alpha1Client) NetlinkInterfaces() NetlinkInterfaceInterface
 
 func (c *NetworkingV1alpha1Client) WireGuardInterfaces() WireGuardInterfaceInterface {
 	return newWireGuardInterfaces(c)
+}
+
+func (c *NetworkingV1alpha1Client) WireGuardNetworkPlans() WireGuardNetworkPlanInterface {
+	return newWireGuardNetworkPlans(c)
 }
 
 // NewForConfig creates a new NetworkingV1alpha1Client for the given config.

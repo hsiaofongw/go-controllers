@@ -36,6 +36,10 @@ func (c *FakeNetworkingV1alpha1) WireGuardInterfaces() v1alpha1.WireGuardInterfa
 	return newFakeWireGuardInterfaces(c)
 }
 
+func (c *FakeNetworkingV1alpha1) WireGuardNetworkPlans() v1alpha1.WireGuardNetworkPlanInterface {
+	return newFakeWireGuardNetworkPlans(c)
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeNetworkingV1alpha1) RESTClient() rest.Interface {

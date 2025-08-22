@@ -62,20 +62,21 @@ func main() {
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	exampleClient, err := clientset.NewForConfig(cfg)
+	customClient, err := clientset.NewForConfig(cfg)
 	if err != nil {
 		logger.Error(err, "Error building kubernetes clientset")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*time.Duration(defaultResyncPeriod))
-	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*time.Duration(defaultResyncPeriod))
+	customInformerFactory := informers.NewSharedInformerFactory(customClient, time.Second*time.Duration(defaultResyncPeriod))
 
 	controllerConfig := wg.ControllerConfig{
 		Nodename:        nodename,
 		Kubeclientset:   kubeClient,
-		Sampleclientset: exampleClient,
-		WgInformer:      exampleInformerFactory.Networking().V1alpha1().WireGuardInterfaces(),
+		Sampleclientset: customClient,
+		WgInformer:      customInformerFactory.Networking().V1alpha1().WireGuardInterfaces(),
+		WgPlanInformer:  customInformerFactory.Networking().V1alpha1().WireGuardNetworkPlans(),
 		SecretsInformer: kubeInformerFactory.Core().V1().Secrets(),
 	}
 	controller := wg.NewController(ctx, controllerConfig)
@@ -83,7 +84,7 @@ func main() {
 	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(ctx.done())
 	// Start method is non-blocking and runs all registered informers in a dedicated goroutine.
 	kubeInformerFactory.Start(ctx.Done())
-	exampleInformerFactory.Start(ctx.Done())
+	customInformerFactory.Start(ctx.Done())
 
 	if err = controller.Run(ctx, numWorkers); err != nil {
 		logger.Error(err, "Error running controller")

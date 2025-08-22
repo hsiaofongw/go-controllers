@@ -51,6 +51,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&WireGuardInterfaceList{},
 		&NetlinkInterface{},
 		&NetlinkInterfaceList{},
+		&WireGuardNetworkPlan{},
+		&WireGuardNetworkPlanList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil

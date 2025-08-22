@@ -25,3 +25,7 @@ type NetlinkInterfaceListerExpansion interface{}
 // WireGuardInterfaceListerExpansion allows custom methods to be added to
 // WireGuardInterfaceLister.
 type WireGuardInterfaceListerExpansion interface{}
+
+// WireGuardNetworkPlanListerExpansion allows custom methods to be added to
+// WireGuardNetworkPlanLister.
+type WireGuardNetworkPlanListerExpansion interface{}

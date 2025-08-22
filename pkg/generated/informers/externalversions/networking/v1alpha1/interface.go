@@ -28,6 +28,8 @@ type Interface interface {
 	NetlinkInterfaces() NetlinkInterfaceInformer
 	// WireGuardInterfaces returns a WireGuardInterfaceInformer.
 	WireGuardInterfaces() WireGuardInterfaceInformer
+	// WireGuardNetworkPlans returns a WireGuardNetworkPlanInformer.
+	WireGuardNetworkPlans() WireGuardNetworkPlanInformer
 }
 
 type version struct {
@@ -49,4 +51,9 @@ func (v *version) NetlinkInterfaces() NetlinkInterfaceInformer {
 // WireGuardInterfaces returns a WireGuardInterfaceInformer.
 func (v *version) WireGuardInterfaces() WireGuardInterfaceInformer {
 	return &wireGuardInterfaceInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// WireGuardNetworkPlans returns a WireGuardNetworkPlanInformer.
+func (v *version) WireGuardNetworkPlans() WireGuardNetworkPlanInformer {
+	return &wireGuardNetworkPlanInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

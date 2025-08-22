@@ -57,6 +57,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1alpha1().NetlinkInterfaces().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("wireguardinterfaces"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1alpha1().WireGuardInterfaces().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("wireguardnetworkplans"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1alpha1().WireGuardNetworkPlans().Informer()}, nil
 
 	}
 

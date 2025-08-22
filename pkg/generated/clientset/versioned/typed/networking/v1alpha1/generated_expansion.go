@@ -21,3 +21,5 @@ package v1alpha1
 type NetlinkInterfaceExpansion interface{}
 
 type WireGuardInterfaceExpansion interface{}
+
+type WireGuardNetworkPlanExpansion interface{}
