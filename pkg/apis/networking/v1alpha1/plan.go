@@ -92,8 +92,7 @@ type WireGuardNetworkPlanInterfaceStatus struct {
 }
 
 // Note: after the spec is formalized, this controller will first generate the underlying
-// WireGuardInterface resources, and it will never come up with the status by itself, instead,
-// it is the responsibility of the subresource controller to update the owner's status.
+// WireGuardInterface resources, and collect the statuses from the underlying WireGuardInterface resources.
 type WireGuardNetworkPlanStatus struct {
 	Interfaces []WireGuardNetworkPlanInterfaceStatus `json:"interfaces,omitempty"`
 
