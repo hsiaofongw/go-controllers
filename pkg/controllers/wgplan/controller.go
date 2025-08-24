@@ -415,6 +415,18 @@ type WGActualPlanInterface struct {
 	Node          string
 	InterfaceName string
 
+	// Addresses are the addresses that would be actually assigned to the WireGuard interface created on the node/container.
+	Addresses []networkingv1alpha1.WireGuardInterfaceAddressSpec
+
+	// MTU is the MTU of the actual WireGuard interface created on the node/container, default to 1420, not 0.
+	MTU int
+
+	// MoveToContainer is a flag to indicate whether the node should be moved to a container once just created.
+	MoveToContainer bool
+
+	// Container is where to host the WireGuardInterface when provided, otherwise it's in the host netns.
+	Container *networkingv1alpha1.WireGuardInterfaceContainerSpec
+
 	// Name of underlying WireGuardInterface resource.
 	WGIntfName string
 
@@ -451,20 +463,26 @@ func (wgaIntf *WGActualPlanInterface) GetWGIntfName(fromNode, toNode string, lin
 
 func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
 	type configHashPayload struct {
-		WGIntfName    string `json:"wgIntfName"`
-		InterfaceName string `json:"interfaceName"`
-		ListenPort    *int   `json:"listenPort"`
-		Hostname      string `json:"hostname"`
-		PublicKey     string `json:"publicKey"`
-		PrivateKey    string `json:"privateKey"`
+		WGIntfName      string                                             `json:"wgIntfName"`
+		InterfaceName   string                                             `json:"interfaceName"`
+		ListenPort      *int                                               `json:"listenPort"`
+		Hostname        string                                             `json:"hostname"`
+		PublicKey       string                                             `json:"publicKey"`
+		PrivateKey      string                                             `json:"privateKey"`
+		MTU             int                                                `json:"mtu"`
+		MoveToContainer bool                                               `json:"moveToContainer"`
+		Addresses       []networkingv1alpha1.WireGuardInterfaceAddressSpec `json:"addresses"`
 	}
 	payload := configHashPayload{
-		WGIntfName:    wgaIntf.WGIntfName,
-		InterfaceName: wgaIntf.InterfaceName,
-		ListenPort:    wgaIntf.ListenPort,
-		Hostname:      wgaIntf.Hostname,
-		PublicKey:     wgaIntf.PublicKey,
-		PrivateKey:    wgaIntf.PrivateKey,
+		WGIntfName:      wgaIntf.WGIntfName,
+		InterfaceName:   wgaIntf.InterfaceName,
+		ListenPort:      wgaIntf.ListenPort,
+		Hostname:        wgaIntf.Hostname,
+		PublicKey:       wgaIntf.PublicKey,
+		PrivateKey:      wgaIntf.PrivateKey,
+		MTU:             wgaIntf.MTU,
+		MoveToContainer: wgaIntf.MoveToContainer,
+		Addresses:       wgaIntf.Addresses,
 	}
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
@@ -510,7 +528,8 @@ func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject(wgPlanName stri
 			},
 		},
 		Spec: networkingv1alpha1.WireGuardInterfaceSpec{
-			// todo: these are todos
+			Node: wgaIntf.Node,
+			// todo
 		},
 	}
 }
@@ -527,22 +546,31 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 	plan := new(WGActualPlan)
 
 	type nodeEntry struct {
-		nodeName   string
-		hostName   string
-		portRange  *networkingv1alpha1.WireGuardNetworkPlanPortRangeSpec
-		privateKey string
-		publicKey  string
+		nodeName        string
+		hostName        string
+		portRange       *networkingv1alpha1.WireGuardNetworkPlanPortRangeSpec
+		privateKey      string
+		publicKey       string
+		mtu             *int
+		addresses       []networkingv1alpha1.WireGuardInterfaceAddressSpec
+		moveToContainer bool
+		container       *networkingv1alpha1.WireGuardInterfaceContainerSpec
 	}
 
 	nodeEntries := make(map[string]*nodeEntry)
 	for _, node := range wgPlanObj.Spec.DB.Nodes {
 		ent := nodeEntry{
-			nodeName:   node.NodeName,
-			hostName:   "",
-			portRange:  &wgPlanObj.Spec.DB.DefaultPortRange,
-			privateKey: "",
-			publicKey:  "",
+			nodeName:        node.NodeName,
+			hostName:        "",
+			portRange:       &wgPlanObj.Spec.DB.DefaultPortRange,
+			privateKey:      "",
+			publicKey:       "",
+			mtu:             node.MTU,
+			addresses:       node.Addresses,
+			moveToContainer: node.MoveToContainer,
+			container:       node.Container,
 		}
+
 		if node.Underlay != nil {
 			if node.Underlay.Hostname != "" {
 				ent.hostName = node.Underlay.Hostname
@@ -588,19 +616,21 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 			return nil, fmt.Errorf("node %s not found in nodeEntries", link.FromNode)
 		}
 
-		toNodes := make([]string, 0)
+		toNodes := make([]networkingv1alpha1.WireGuardNetworkPlanLinkPeerSpec, 0)
 		toNodes = append(toNodes, link.ToNodes...)
-		sort.Strings(toNodes)
+		sort.Slice(toNodes, func(i, j int) bool {
+			return toNodes[i].NodeName < toNodes[j].NodeName
+		})
 
 		for linkIdx, toNode := range toNodes {
-			toNode, found := nodeEntries[toNode]
+			toNodeEnt, found := nodeEntries[toNode.NodeName]
 			if !found {
-				return nil, fmt.Errorf("node %s not found in nodeEntries", toNode.nodeName)
+				return nil, fmt.Errorf("node %s not found in nodeEntries", toNodeEnt.nodeName)
 			}
 
 			planIntfObj := new(WGActualPlanInterface)
 			planIntfObj.Node = link.FromNode
-			planIntfObj.InterfaceName = planIntfObj.GetWGIntfName(link.FromNode, toNode.nodeName, linkIdx)
+			planIntfObj.InterfaceName = planIntfObj.GetWGIntfName(link.FromNode, toNodeEnt.nodeName, linkIdx)
 			planIntfObj.WGIntfName = planIntfObj.InterfaceName
 			if fromNode.hostName != "" {
 				// not behind a NAT
@@ -610,7 +640,23 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 			}
 			planIntfObj.PrivateKey = fromNode.privateKey
 			planIntfObj.PublicKey = fromNode.publicKey
-			planIntfObj.ResourceId = planIntfObj.GetResourceId(link.FromNode, toNode.nodeName, linkIdx)
+			planIntfObj.MTU = 1420
+			if fromNode.mtu != nil {
+				planIntfObj.MTU = *fromNode.mtu
+			}
+
+			if toNode.OverrideAddresses {
+				planIntfObj.Addresses = toNode.Addresses
+			} else {
+				if planIntfObj.Addresses == nil {
+					planIntfObj.Addresses = make([]networkingv1alpha1.WireGuardInterfaceAddressSpec, 0)
+				}
+				planIntfObj.Addresses = append(planIntfObj.Addresses, fromNode.addresses...)
+			}
+			planIntfObj.MoveToContainer = fromNode.moveToContainer
+			planIntfObj.Container = fromNode.container
+
+			planIntfObj.ResourceId = planIntfObj.GetResourceId(link.FromNode, toNodeEnt.nodeName, linkIdx)
 			if err := planIntfObj.ComputeConfigHash(); err != nil {
 				return nil, fmt.Errorf("failed to compute config hash for interface %s: %s", planIntfObj.InterfaceName, err.Error())
 			}

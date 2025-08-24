@@ -59,6 +59,19 @@ type WireGuardNetworkPlanNodeSpec struct {
 
 	// PrivateKey is the private key of the node.
 	PrivateKeyRef PrivateKeySecretRef `json:"privateKeyRef"`
+
+	// MoveToContainer is a flag to indicate whether the node should be moved to a container once just created.
+	MoveToContainer bool `json:"moveToContainer,omitempty"`
+
+	// Container is where to host the WireGuardInterface when provided, otherwise it's in the host netns.
+	Container *WireGuardInterfaceContainerSpec `json:"container,omitempty"`
+
+	// MTU is the MTU of the actual WireGuard interface created on the node/container, if omitted, the default MTU of 1420 will be used.
+	MTU *int `json:"mtu,omitempty"`
+
+	// Addresses would be assigned to every WireGuard interface created on the node/container.
+	// There is also per-link addresses (on WireGuardNetworkPlanLinkSpec).
+	Addresses []WireGuardInterfaceAddressSpec `json:"addresses,omitempty"`
 }
 
 type WireGuardNetworkPlanDBSpec struct {
@@ -69,9 +82,18 @@ type WireGuardNetworkPlanDBSpec struct {
 	DefaultPortRange WireGuardNetworkPlanPortRangeSpec `json:"defaultPortRange"`
 }
 
+type WireGuardNetworkPlanLinkPeerSpec struct {
+	NodeName string `json:"nodeName"`
+
+	Addresses []WireGuardInterfaceAddressSpec `json:"addresses,omitempty"`
+
+	// If this is true, the per-link addresses specified here will override the per-node addresses instead of appending to them.
+	OverrideAddresses bool `json:"overrideAddresses,omitempty"`
+}
+
 type WireGuardNetworkPlanLinkSpec struct {
-	FromNode string   `json:"fromNode"`
-	ToNodes  []string `json:"toNodes"`
+	FromNode string                             `json:"fromNode"`
+	ToNodes  []WireGuardNetworkPlanLinkPeerSpec `json:"toNodes"`
 }
 
 type WireGuardNetworkPlanAdjacencySpec struct {
