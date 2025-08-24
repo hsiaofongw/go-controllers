@@ -546,49 +546,34 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 	plan := new(WGActualPlan)
 
 	type nodeEntry struct {
-		nodeName        string
-		hostName        string
-		portRange       *networkingv1alpha1.WireGuardNetworkPlanPortRangeSpec
-		privateKey      string
-		publicKey       string
-		mtu             *int
-		addresses       []networkingv1alpha1.WireGuardInterfaceAddressSpec
-		moveToContainer bool
-		container       *networkingv1alpha1.WireGuardInterfaceContainerSpec
+		nodeSpec   networkingv1alpha1.WireGuardNetworkPlanNodeSpec
+		portRange  *networkingv1alpha1.WireGuardNetworkPlanPortRangeSpec
+		privateKey string
+		publicKey  string
 	}
 
 	nodeEntries := make(map[string]*nodeEntry)
 	for _, node := range wgPlanObj.Spec.DB.Nodes {
 		ent := nodeEntry{
-			nodeName:        node.NodeName,
-			hostName:        "",
-			portRange:       &wgPlanObj.Spec.DB.DefaultPortRange,
-			privateKey:      "",
-			publicKey:       "",
-			mtu:             node.MTU,
-			addresses:       node.Addresses,
-			moveToContainer: node.MoveToContainer,
-			container:       node.Container,
+			nodeSpec:  node,
+			portRange: &wgPlanObj.Spec.DB.DefaultPortRange,
+		}
+		if node.Underlay != nil && node.Underlay.PortRange != nil {
+			ent.portRange = node.Underlay.PortRange
 		}
 
-		if node.Underlay != nil {
-			if node.Underlay.Hostname != "" {
-				ent.hostName = node.Underlay.Hostname
-			}
-			if node.Underlay.PortRange != nil {
-				ent.portRange = node.Underlay.PortRange
-			}
-		}
 		if node.PrivateKeyRef.Name == "" {
 			return nil, fmt.Errorf("privateKeyRef.name of node %s is empty", node.NodeName)
 		}
 		if node.PrivateKeyRef.Key == "" {
 			return nil, fmt.Errorf("privateKeyRef.key of node %s is empty", node.NodeName)
 		}
+
 		secNs := "default"
 		if node.PrivateKeyRef.Namespace != nil && *node.PrivateKeyRef.Namespace != "" {
 			secNs = *node.PrivateKeyRef.Namespace
 		}
+
 		secObj, err := c.secretsLister.Secrets(secNs).Get(node.PrivateKeyRef.Name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get secret %s/%s: %s", secNs, node.PrivateKeyRef.Name, err.Error())
@@ -625,24 +610,29 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 		for linkIdx, toNode := range toNodes {
 			toNodeEnt, found := nodeEntries[toNode.NodeName]
 			if !found {
-				return nil, fmt.Errorf("node %s not found in nodeEntries", toNodeEnt.nodeName)
+				return nil, fmt.Errorf("node %s not found in nodeEntries", toNode.NodeName)
 			}
 
 			planIntfObj := new(WGActualPlanInterface)
 			planIntfObj.Node = link.FromNode
-			planIntfObj.InterfaceName = planIntfObj.GetWGIntfName(link.FromNode, toNodeEnt.nodeName, linkIdx)
+			planIntfObj.InterfaceName = planIntfObj.GetWGIntfName(link.FromNode, toNode.NodeName, linkIdx)
 			planIntfObj.WGIntfName = planIntfObj.InterfaceName
-			if fromNode.hostName != "" {
-				// not behind a NAT
-				baseListenPort := fromNode.portRange.Start
-				planIntfObj.ListenPort = &baseListenPort
-				planIntfObj.Hostname = fromNode.hostName
+			if fromNode.nodeSpec.Underlay != nil {
+				underlay := fromNode.nodeSpec.Underlay
+				if underlay.Hostname != "" {
+					// not behind a NAT
+					baseListenPort := fromNode.portRange.Start
+					planIntfObj.ListenPort = &baseListenPort
+					planIntfObj.Hostname = underlay.Hostname
+				}
 			}
+
 			planIntfObj.PrivateKey = fromNode.privateKey
 			planIntfObj.PublicKey = fromNode.publicKey
+
 			planIntfObj.MTU = 1420
-			if fromNode.mtu != nil {
-				planIntfObj.MTU = *fromNode.mtu
+			if fromNode.nodeSpec.MTU != nil {
+				planIntfObj.MTU = *fromNode.nodeSpec.MTU
 			}
 
 			if toNode.OverrideAddresses {
@@ -651,12 +641,12 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 				if planIntfObj.Addresses == nil {
 					planIntfObj.Addresses = make([]networkingv1alpha1.WireGuardInterfaceAddressSpec, 0)
 				}
-				planIntfObj.Addresses = append(planIntfObj.Addresses, fromNode.addresses...)
+				planIntfObj.Addresses = append(planIntfObj.Addresses, toNode.Addresses...)
 			}
-			planIntfObj.MoveToContainer = fromNode.moveToContainer
-			planIntfObj.Container = fromNode.container
+			planIntfObj.MoveToContainer = fromNode.nodeSpec.MoveToContainer
+			planIntfObj.Container = fromNode.nodeSpec.Container
 
-			planIntfObj.ResourceId = planIntfObj.GetResourceId(link.FromNode, toNodeEnt.nodeName, linkIdx)
+			planIntfObj.ResourceId = planIntfObj.GetResourceId(link.FromNode, toNodeEnt.nodeSpec.NodeName, linkIdx)
 			if err := planIntfObj.ComputeConfigHash(); err != nil {
 				return nil, fmt.Errorf("failed to compute config hash for interface %s: %s", planIntfObj.InterfaceName, err.Error())
 			}
