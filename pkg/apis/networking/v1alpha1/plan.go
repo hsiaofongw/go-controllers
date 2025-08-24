@@ -107,13 +107,14 @@ type WireGuardNetworkPlanSpec struct {
 }
 
 type WireGuardNetworkPlanInterfaceStatus struct {
-	NodeName      string  `json:"nodeName"`
-	HostName      *string `json:"hostName,omitempty"`
-	Endpoint      *string `json:"endpoint,omitempty"`
-	LastHandshake *int64  `json:"lastHandshake,omitempty"`
-	PublicKey     *string `json:"publicKey,omitempty"`
-	PrivateKey    *string `json:"privateKey,omitempty"`
-	ListenPort    *int    `json:"listenPort,omitempty"`
+	NodeName      string   `json:"nodeName"`
+	HostName      string   `json:"hostName,omitempty"`
+	LastHandshake *int64   `json:"lastHandshake,omitempty"`
+	PublicKey     *string  `json:"publicKey,omitempty"`
+	PrivateKey    *string  `json:"privateKey,omitempty"`
+	ListenPort    *int     `json:"listenPort,omitempty"`
+	MTU           *int     `json:"mtu,omitempty"`
+	Addresses     []string `json:"addresses,omitempty"`
 }
 
 // Note: after the spec is formalized, this controller will first generate the underlying

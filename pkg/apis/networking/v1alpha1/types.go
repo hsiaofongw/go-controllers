@@ -232,10 +232,13 @@ type WireGuardInterfaceStatus struct {
 	//  Hostname of the node where the interface is provisioned,
 	// or the hostname of the host of the container in case of containerization.
 	// This is used to identify the node where the interface is provisioned.
+	// The Hostname is not necessarily publicly reachable, since it is most likely collected from the system's hostname.
 	Hostname string `json:"hostname"`
+
 	// Node name where the interface is provisioned.
 	// The node name can be overridden by the operator running on the node.
-	Nodename  string                  `json:"nodename"`
+	Nodename string `json:"nodename"`
+
 	WireGuard *WireGuardStatusWrapper `json:"wireguard,omitempty"`
 	MTU       *int                    `json:"mtu,omitempty"`
 	Netlink   *NetlinkStatusWrapper   `json:"netlink,omitempty"`

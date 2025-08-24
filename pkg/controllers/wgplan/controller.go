@@ -397,20 +397,87 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 }
 
 // updateWireGuardNetworkPlanStatus updates the status of a WireGuardNetworkPlan with current information
-func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgObj *networkingv1alpha1.WireGuardNetworkPlan) error {
-	// logger := klog.FromContext(ctx)
+func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgPlanObj *networkingv1alpha1.WireGuardNetworkPlan) error {
+	logger := klog.FromContext(ctx)
 
 	// NEVER modify objects from the store. It's a read-only, local cache.
 	// You can use DeepCopy() to make a deep copy of original object and modify this copy
-	// wgPlanObjCopy := wgPlanObj.DeepCopy()
+	wgPlanObjCopy := wgPlanObj.DeepCopy()
 
 	// todo:
 	// 1. get all WireGuardInterface resources
+	wgIntfObjs, err := c.wgLister.List(labels.SelectorFromSet(labels.Set{
+		LabelIsControlledBy: wgPlanObj.Name,
+	}))
+	if err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to list WireGuardInterface resources: %s", err.Error())
+		}
+		return nil
+	}
+
+	status, err := c.getCurrentWireGuardNetworkPlanStatus(wgIntfObjs)
+	if err != nil {
+		logger.Error(err, "Failed to get current WireGuardNetworkPlan status", "objectReference", klog.KObj(wgPlanObj))
+		// Don't fail the entire sync if status update fails
+		return nil
+	}
+
+	// Every time the status is updated, track the `generation` field at that moment as well (hence the name "observedGeneration")
+	status.ObservedGeneration = wgPlanObj.GetGeneration()
+
+	wgPlanObjCopy.Status = *status
+
 	// 2. collect the statuses from the underlying WireGuardInterface resources
 	// 3. update the status of the WireGuardNetworkPlan resource
 
 	// logger.V(4).Info("Updated WireGuardNetworkPlan status", "objectReference", klog.KObj(wgObj))
 	return nil
+}
+
+func (c *Controller) getCurrentWireGuardNetworkPlanStatus(wgIntfObjs []*networkingv1alpha1.WireGuardInterface) (*networkingv1alpha1.WireGuardNetworkPlanStatus, error) {
+	status := new(networkingv1alpha1.WireGuardNetworkPlanStatus)
+
+	for _, wgIntfObj := range wgIntfObjs {
+		intfStatus := networkingv1alpha1.WireGuardNetworkPlanInterfaceStatus{
+			NodeName: wgIntfObj.Status.Nodename,
+			HostName: wgIntfObj.Status.Hostname,
+		}
+
+		wgStatus := wgIntfObj.Status.WireGuard
+		if wgStatus != nil {
+			intfStatus.ListenPort = wgStatus.ListenPort
+			intfStatus.PublicKey = wgStatus.PublicKey
+			intfStatus.PrivateKey = wgStatus.PrivateKey
+			if len(wgStatus.Peers) > 0 {
+				peer1 := wgStatus.Peers[0]
+				if peer1.LastHandshakeTime != nil {
+					intfStatus.LastHandshake = peer1.LastHandshakeTime
+				}
+			}
+		}
+
+		nlStatus := wgIntfObj.Status.Netlink
+		if nlStatus != nil {
+			mtu := nlStatus.MTU
+			intfStatus.MTU = &mtu
+
+			if len(nlStatus.Addrs) > 0 {
+				for _, addr := range nlStatus.Addrs {
+					if addr.Peer != nil {
+						peerAddr := fmt.Sprintf("%s/%d", *addr.Peer, addr.Prefixlen)
+						intfStatus.Addresses = append(intfStatus.Addresses, fmt.Sprintf("%s -> %s", addr.Local, peerAddr))
+					} else {
+						intfStatus.Addresses = append(intfStatus.Addresses, fmt.Sprintf("%s/%d", addr.Local, addr.Prefixlen))
+					}
+				}
+			}
+		}
+
+		status.Interfaces = append(status.Interfaces, intfStatus)
+	}
+
+	return status, nil
 }
 
 type WGActualPlanInterface struct {
