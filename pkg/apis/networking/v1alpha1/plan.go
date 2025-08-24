@@ -70,8 +70,8 @@ type WireGuardNetworkPlanDBSpec struct {
 }
 
 type WireGuardNetworkPlanLinkSpec struct {
-	FromNode string `json:"fromNode"`
-	ToNode   string `json:"toNode"`
+	FromNode string   `json:"fromNode"`
+	ToNodes  []string `json:"toNodes"`
 }
 
 type WireGuardNetworkPlanAdjacencySpec struct {
