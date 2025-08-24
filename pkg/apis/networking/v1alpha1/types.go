@@ -80,15 +80,17 @@ type WireGuardInterfaceContainerSpec struct {
 
 // WireGuardInterfaceSpec is the spec for a WireGuardInterface resource
 type WireGuardInterfaceSpec struct {
-	Node                string                           `json:"node"`
-	MoveToContainer     bool                             `json:"moveToContainer"`
-	Container           *WireGuardInterfaceContainerSpec `json:"container,omitempty"`
-	InterfaceName       string                           `json:"interfaceName"`
-	PrivateKeySecretRef *PrivateKeySecretRef             `json:"privateKeySecretRef,omitempty"`
-	Addresses           []WireGuardInterfaceAddressSpec  `json:"addresses"`
-	ListenPort          int                              `json:"listenPort"`
-	MTU                 *int                             `json:"mtu,omitempty"`
-	Peers               []WireGuardPeerSpec              `json:"peers"`
+	Node            string                           `json:"node"`
+	MoveToContainer bool                             `json:"moveToContainer"`
+	Container       *WireGuardInterfaceContainerSpec `json:"container,omitempty"`
+	InterfaceName   string                           `json:"interfaceName"`
+	// If PrivateKey is provided, the PrivateKeySecretRef will not be used.
+	PrivateKey          string                          `json:"privateKey,omitempty"`
+	PrivateKeySecretRef *PrivateKeySecretRef            `json:"privateKeySecretRef,omitempty"`
+	Addresses           []WireGuardInterfaceAddressSpec `json:"addresses"`
+	ListenPort          int                             `json:"listenPort"`
+	MTU                 *int                            `json:"mtu,omitempty"`
+	Peers               []WireGuardPeerSpec             `json:"peers"`
 }
 
 type WireGuardInterfaceAddressSpec struct {

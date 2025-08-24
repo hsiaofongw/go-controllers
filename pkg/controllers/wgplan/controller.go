@@ -453,6 +453,10 @@ type WGActualPlanInterface struct {
 	// for a update, if the ConfigHash of the WireGuardInterface resource doesn't match that of this one,
 	// then it is the moment to reconcile the spec of the WireGuardInterface resource to re-converge it to here.
 	ConfigHash string
+
+	// The WireGuardPlan controller will only create one-to-one WireGuard interfaces,
+	// There is no chance that multiple peers are in the same WireGuard interface.
+	Peer networkingv1alpha1.WireGuardPeerSpec
 }
 
 func (wgaIntf *WGActualPlanInterface) GetResourceId(fromNode, toNode string, linkIdx int) string {
@@ -555,6 +559,14 @@ func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
 		FieldPath: []string{"PrivateKey"},
 		Value:     wgaIntf.PrivateKey,
 	})
+	peerJSON, err := json.Marshal(wgaIntf.Peer)
+	if err != nil {
+		return err
+	}
+	criticalFields = append(criticalFields, &CriticalField{
+		FieldPath: []string{"Peer"},
+		Value:     string(peerJSON),
+	})
 
 	//Create a new Merkle Tree from the list of Content
 	mkTree, err := merkletree.NewTree(criticalFields)
@@ -603,8 +615,16 @@ func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject(wgPlanName stri
 			},
 		},
 		Spec: networkingv1alpha1.WireGuardInterfaceSpec{
-			Node: wgaIntf.Node,
-			// todo
+			Node:                wgaIntf.Node,
+			MoveToContainer:     wgaIntf.MoveToContainer,
+			Container:           wgaIntf.Container,
+			InterfaceName:       wgaIntf.InterfaceName,
+			PrivateKey:          wgaIntf.PrivateKey,
+			PrivateKeySecretRef: nil,
+			Addresses:           wgaIntf.Addresses,
+			ListenPort:          *wgaIntf.ListenPort,
+			MTU:                 &wgaIntf.MTU,
+			Peers:               []networkingv1alpha1.WireGuardPeerSpec{wgaIntf.Peer},
 		},
 	}
 }
@@ -668,6 +688,35 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 		return nil, fmt.Errorf("spec.adjacency is nil")
 	}
 
+	linkIdxMap := make(map[string]map[string]int)
+	for _, link := range wgPlanObj.Spec.Adjacency.Links {
+		toNodes := make([]networkingv1alpha1.WireGuardNetworkPlanLinkPeerSpec, 0)
+		toNodes = append(toNodes, link.ToNodes...)
+		sort.Slice(toNodes, func(i, j int) bool {
+			return toNodes[i].NodeName < toNodes[j].NodeName
+		})
+		if _, ok := linkIdxMap[link.FromNode]; !ok {
+			linkIdxMap[link.FromNode] = make(map[string]int)
+		}
+		for linkIdx, toNode := range toNodes {
+			linkIdxMap[link.FromNode][toNode.NodeName] = linkIdx
+		}
+	}
+
+	for p, m := range linkIdxMap {
+		for q := range m {
+			hasRev := false
+			if s, ok := linkIdxMap[q]; ok {
+				if _, ok := s[p]; ok {
+					hasRev = true
+				}
+			}
+			if !hasRev {
+				return nil, fmt.Errorf("link %s-%s is not bidirectional", p, q)
+			}
+		}
+	}
+
 	planIntfObjs := make([]*WGActualPlanInterface, 0)
 	plan.Interfaces = planIntfObjs
 	for _, link := range wgPlanObj.Spec.Adjacency.Links {
@@ -678,15 +727,14 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 
 		toNodes := make([]networkingv1alpha1.WireGuardNetworkPlanLinkPeerSpec, 0)
 		toNodes = append(toNodes, link.ToNodes...)
-		sort.Slice(toNodes, func(i, j int) bool {
-			return toNodes[i].NodeName < toNodes[j].NodeName
-		})
 
-		for linkIdx, toNode := range toNodes {
+		for _, toNode := range toNodes {
 			toNodeEnt, found := nodeEntries[toNode.NodeName]
 			if !found {
 				return nil, fmt.Errorf("node %s not found in nodeEntries", toNode.NodeName)
 			}
+
+			linkIdx := linkIdxMap[link.FromNode][toNode.NodeName]
 
 			planIntfObj := new(WGActualPlanInterface)
 			planIntfObj.Node = link.FromNode
@@ -720,6 +768,32 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 			}
 			planIntfObj.MoveToContainer = fromNode.nodeSpec.MoveToContainer
 			planIntfObj.Container = fromNode.nodeSpec.Container
+			peer := networkingv1alpha1.WireGuardPeerSpec{
+				PublicKey:  toNodeEnt.publicKey,
+				AllowedIPs: []string{"0.0.0.0/0", "::/0"}, // ACL-based firewall is not the duty of a VPN tunnel.
+			}
+			if toNodeEnt.nodeSpec.Underlay != nil {
+				underlay := toNodeEnt.nodeSpec.Underlay
+				if underlay.Hostname != "" {
+					portRange := toNodeEnt.portRange
+					revLinkIdx := linkIdxMap[toNode.NodeName][link.FromNode]
+					port := portRange.Start + revLinkIdx
+					if port > portRange.End {
+						return nil, fmt.Errorf("port %d is out of range %d-%d", port, portRange.Start, portRange.End)
+					}
+
+					endpoint := fmt.Sprintf("%s:%d", underlay.Hostname, port)
+					peer.Endpoint = &endpoint
+				}
+			}
+
+			if fromNode.nodeSpec.Underlay == nil {
+				// this node is behind a NAT, so set the PersistentKeepalive to 25, which is reasonable for most cases.
+				pkl := 25
+				peer.PersistentKeepalive = &pkl
+			}
+
+			planIntfObj.Peer = peer
 
 			planIntfObj.ResourceId = planIntfObj.GetResourceId(link.FromNode, toNodeEnt.nodeSpec.NodeName, linkIdx)
 			if err := planIntfObj.ComputeConfigHash(); err != nil {

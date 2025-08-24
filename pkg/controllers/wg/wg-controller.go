@@ -359,17 +359,20 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return nil
 	}
 
-	privkeyNS := "default"
-	if wgObj.Spec.PrivateKeySecretRef.Namespace != nil {
-		privkeyNS = *wgObj.Spec.PrivateKeySecretRef.Namespace
-	}
+	privkeyStr := wgObj.Spec.PrivateKey
+	if privkeyStr == "" {
+		privkeyNS := "default"
+		if wgObj.Spec.PrivateKeySecretRef.Namespace != nil {
+			privkeyNS = *wgObj.Spec.PrivateKeySecretRef.Namespace
+		}
 
-	privKey, err := c.getSecretValue(privkeyNS, wgObj.Spec.PrivateKeySecretRef.Name, wgObj.Spec.PrivateKeySecretRef.Key)
-	if err != nil {
-		return fmt.Errorf("failed to get private key: %s", err.Error())
-	}
+		privKey, err := c.getSecretValue(privkeyNS, wgObj.Spec.PrivateKeySecretRef.Name, wgObj.Spec.PrivateKeySecretRef.Key)
+		if err != nil {
+			return fmt.Errorf("failed to get private key: %s", err.Error())
+		}
 
-	privkeyStr := string(privKey)
+		privkeyStr = string(privKey)
+	}
 
 	ipconfigurator := func(handle *netlink.Handle, wgLink netlink.Link) error {
 		addrObjs := make([]*netlink.Addr, 0)
