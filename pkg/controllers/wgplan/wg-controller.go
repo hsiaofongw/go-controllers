@@ -351,3 +351,39 @@ func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgObj
 	// logger.V(4).Info("Updated WireGuardNetworkPlan status", "objectReference", klog.KObj(wgObj))
 	return nil
 }
+
+type WGActualPlanInterface struct {
+	Node          string
+	InterfaceName string
+
+	// if no listen port, means that the node is behind a NAT.
+	ListenPort *int
+
+	// same as the listen port, if the node is behind a NAT, the hostname can be left empty.
+	Hostname string
+
+	// WireGuard public key, in base64 format.
+	PublicKey string
+
+	// WireGuard private key, in base64 format.
+	PrivateKey string
+
+	// The ResourceId will be assigned to the dependent WireGuardInterface resources that
+	// are owned by the WireGuardNetworkPlan resources created by this controller.
+	// We use this are the key to track what WireGuardInterface resources are needed to be created or deleted.
+	ResourceId string
+
+	// Same like the ResourceId, we use this field to track what WireGuardInterface resources are needed
+	// for a update, if the ConfigHash of the WireGuardInterface resource doesn't match that of this one,
+	// then it is the moment to reconcile the spec of the WireGuardInterface resource to re-converge it to here.
+	ConfigHash string
+}
+
+type WGActualPlan struct {
+	Interfaces []WGActualPlanInterface
+}
+
+func NewWGActualPlanFromSpec(spec *networkingv1alpha1.WireGuardNetworkPlan) (*WGActualPlan, error) {
+	// todo: implement this
+	return nil, nil
+}
