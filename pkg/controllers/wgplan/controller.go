@@ -595,7 +595,7 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 		for linkIdx, toNode := range toNodes {
 			toNode, found := nodeEntries[toNode]
 			if !found {
-				return nil, fmt.Errorf("node %s not found in nodeEntries", toNode)
+				return nil, fmt.Errorf("node %s not found in nodeEntries", toNode.nodeName)
 			}
 
 			planIntfObj := new(WGActualPlanInterface)
