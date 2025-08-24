@@ -17,6 +17,7 @@ limitations under the License.
 package wgplan
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -32,6 +33,7 @@ import (
 	dockerSDK "github.com/docker/docker/client"
 	"golang.org/x/time/rate"
 
+	"github.com/cbergoon/merkletree"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -461,34 +463,107 @@ func (wgaIntf *WGActualPlanInterface) GetWGIntfName(fromNode, toNode string, lin
 	return fmt.Sprintf("wg-%s-%s-%d", fromNode, toNode, linkIdx)
 }
 
+// An object of type CriticalField implements the merkletree.Content interface.
+type CriticalField struct {
+	FieldPath []string
+	Value     string
+}
+
+func (cf *CriticalField) CalculateHash() ([]byte, error) {
+	fieldJSON, err := json.Marshal(cf.FieldPath)
+	if err != nil {
+		return nil, err
+	}
+	fieldHash := sha256.Sum256(fieldJSON)
+	valueHash := sha256.Sum256([]byte(cf.Value))
+	contentHash := sha256.Sum256(append(fieldHash[:], valueHash[:]...))
+	return contentHash[:], nil
+}
+
+func (cf *CriticalField) Equals(other merkletree.Content) (bool, error) {
+	lhsHash, err := cf.CalculateHash()
+	if err != nil {
+		return false, err
+	}
+
+	rhsHash, err := other.CalculateHash()
+	if err != nil {
+		return false, err
+	}
+
+	return bytes.Equal(lhsHash, rhsHash), nil
+}
+
 func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
-	type configHashPayload struct {
-		WGIntfName      string                                             `json:"wgIntfName"`
-		InterfaceName   string                                             `json:"interfaceName"`
-		ListenPort      *int                                               `json:"listenPort"`
-		Hostname        string                                             `json:"hostname"`
-		PublicKey       string                                             `json:"publicKey"`
-		PrivateKey      string                                             `json:"privateKey"`
-		MTU             int                                                `json:"mtu"`
-		MoveToContainer bool                                               `json:"moveToContainer"`
-		Addresses       []networkingv1alpha1.WireGuardInterfaceAddressSpec `json:"addresses"`
+	criticalFields := make([]merkletree.Content, 0)
+
+	criticalFields = append(criticalFields, &CriticalField{
+		FieldPath: []string{"Node"},
+		Value:     wgaIntf.Node,
+	})
+	criticalFields = append(criticalFields, &CriticalField{
+		FieldPath: []string{"InterfaceName"},
+		Value:     wgaIntf.InterfaceName,
+	})
+	for addrIdx, addr := range wgaIntf.Addresses {
+		addrJSON, err := json.Marshal(addr)
+		if err != nil {
+			return err
+		}
+		criticalFields = append(criticalFields, &CriticalField{
+			FieldPath: []string{"Addresses", fmt.Sprintf("%d", addrIdx)},
+			Value:     string(addrJSON),
+		})
 	}
-	payload := configHashPayload{
-		WGIntfName:      wgaIntf.WGIntfName,
-		InterfaceName:   wgaIntf.InterfaceName,
-		ListenPort:      wgaIntf.ListenPort,
-		Hostname:        wgaIntf.Hostname,
-		PublicKey:       wgaIntf.PublicKey,
-		PrivateKey:      wgaIntf.PrivateKey,
-		MTU:             wgaIntf.MTU,
-		MoveToContainer: wgaIntf.MoveToContainer,
-		Addresses:       wgaIntf.Addresses,
+	criticalFields = append(criticalFields, &CriticalField{
+		FieldPath: []string{"MTU"},
+		Value:     fmt.Sprintf("%d", wgaIntf.MTU),
+	})
+	criticalFields = append(criticalFields, &CriticalField{
+		FieldPath: []string{"MoveToContainer"},
+		Value:     fmt.Sprintf("%t", wgaIntf.MoveToContainer),
+	})
+	if wgaIntf.Container != nil {
+		containerJSON, err := json.Marshal(wgaIntf.Container)
+		if err != nil {
+			return err
+		}
+		criticalFields = append(criticalFields, &CriticalField{
+			FieldPath: []string{"Container"},
+			Value:     string(containerJSON),
+		})
 	}
-	jsonPayload, err := json.Marshal(payload)
+	criticalFields = append(criticalFields, &CriticalField{
+		FieldPath: []string{"WGIntfName"},
+		Value:     wgaIntf.WGIntfName,
+	})
+	if wgaIntf.ListenPort != nil {
+		criticalFields = append(criticalFields, &CriticalField{
+			FieldPath: []string{"ListenPort"},
+			Value:     fmt.Sprintf("%d", *wgaIntf.ListenPort),
+		})
+	}
+	criticalFields = append(criticalFields, &CriticalField{
+		FieldPath: []string{"Hostname"},
+		Value:     wgaIntf.Hostname,
+	})
+	criticalFields = append(criticalFields, &CriticalField{
+		FieldPath: []string{"PublicKey"},
+		Value:     wgaIntf.PublicKey,
+	})
+	criticalFields = append(criticalFields, &CriticalField{
+		FieldPath: []string{"PrivateKey"},
+		Value:     wgaIntf.PrivateKey,
+	})
+
+	//Create a new Merkle Tree from the list of Content
+	mkTree, err := merkletree.NewTree(criticalFields)
 	if err != nil {
 		return err
 	}
-	wgaIntf.ConfigHash = fmt.Sprintf("%x", sha256.Sum256(jsonPayload))
+
+	mkTreeRoot := mkTree.MerkleRoot()
+	wgaIntf.ConfigHash = fmt.Sprintf("%x", mkTreeRoot)
 	return nil
 }
 
