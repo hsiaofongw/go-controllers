@@ -316,12 +316,26 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return err
 	}
 
+	selectorOfThis := labels.SelectorFromSet(labels.Set{
+		LabelIsControlledBy: wgPlanObj.Name,
+	})
+
 	deletionTime := wgPlanObj.GetDeletionTimestamp()
 	if deletionTime != nil {
 		// Clean up underlying resources, then
 		// clear all finalizers from the object
 
-		// todo: clean up underlying resources (those WireGuardInterface resources that has ownerReference pointing to this WireGuardNetworkPlan)
+		wgIntfObjs, err := c.wgLister.List(selectorOfThis)
+		if err != nil {
+			logger.Error(err, "Failed to list WireGuardInterface resources for cleanup", "objectReference", klog.KObj(wgPlanObj))
+		}
+
+		for _, wgIntfObj := range wgIntfObjs {
+			err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Delete(context.Background(), wgIntfObj.Name, metav1.DeleteOptions{})
+			if err != nil {
+				logger.Error(err, "Failed to delete WireGuardInterface resource for cleanup", "objectReference", klog.KObj(wgIntfObj))
+			}
+		}
 
 		wgPlanObjCopy := wgPlanObj.DeepCopy()
 		wgPlanObjCopy.SetFinalizers([]string{})
@@ -335,8 +349,6 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return nil
 	}
 
-	// todo: reconcile logic goes here
-
 	// 1. work out an actual plan from the spec
 	actualPlan, err := c.NewWGActualPlanFromObj(wgPlanObj)
 	if err != nil {
@@ -344,9 +356,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	}
 
 	// 2. query the lister to get depedent WireGuardInterface resources that are controlled by this
-	wgIntfObjs, err := c.wgLister.List(labels.SelectorFromSet(labels.Set{
-		LabelIsControlledBy: wgPlanObj.Name,
-	}))
+	wgIntfObjs, err := c.wgLister.List(selectorOfThis)
 	if err != nil {
 		if !k8serrors.IsNotFound(err) {
 			return fmt.Errorf("failed to list WireGuardInterface resources: %s", err.Error())
@@ -404,8 +414,6 @@ func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgPla
 	// You can use DeepCopy() to make a deep copy of original object and modify this copy
 	wgPlanObjCopy := wgPlanObj.DeepCopy()
 
-	// todo:
-	// 1. get all WireGuardInterface resources
 	wgIntfObjs, err := c.wgLister.List(labels.SelectorFromSet(labels.Set{
 		LabelIsControlledBy: wgPlanObj.Name,
 	}))
@@ -428,10 +436,7 @@ func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgPla
 
 	wgPlanObjCopy.Status = *status
 
-	// 2. collect the statuses from the underlying WireGuardInterface resources
-	// 3. update the status of the WireGuardNetworkPlan resource
-
-	// logger.V(4).Info("Updated WireGuardNetworkPlan status", "objectReference", klog.KObj(wgObj))
+	logger.V(4).Info("Updated WireGuardNetworkPlan status", "objectReference", klog.KObj(wgPlanObj))
 	return nil
 }
 
