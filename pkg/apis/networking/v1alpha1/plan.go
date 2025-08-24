@@ -56,6 +56,9 @@ type WireGuardNetworkPlanNodeSpec struct {
 
 	// If this node is behind a NAT, the `Underlay` field can be safely omitted.
 	Underlay *WireGuardNetworkPlanUnderlaySpec `json:"underlay,omitempty"`
+
+	// PrivateKey is the private key of the node.
+	PrivateKeyRef PrivateKeySecretRef `json:"privateKeyRef"`
 }
 
 type WireGuardNetworkPlanDBSpec struct {

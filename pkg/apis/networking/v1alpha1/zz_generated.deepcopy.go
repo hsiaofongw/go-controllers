@@ -911,6 +911,7 @@ func (in *WireGuardNetworkPlanNodeSpec) DeepCopyInto(out *WireGuardNetworkPlanNo
 		*out = new(WireGuardNetworkPlanUnderlaySpec)
 		(*in).DeepCopyInto(*out)
 	}
+	in.PrivateKeyRef.DeepCopyInto(&out.PrivateKeyRef)
 	return
 }
 

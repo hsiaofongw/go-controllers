@@ -19,12 +19,15 @@ package wgplan
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"time"
 
 	dockerUtil "example.com/go-util/pkg/util/docker"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	dockerSDK "github.com/docker/docker/client"
 	"golang.org/x/time/rate"
@@ -294,7 +297,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 	logger.V(4).Info("Processing wgi object creation", "object", objectRef.Name)
 
-	wgObj, err := c.wgPlanLister.Get(objectRef.Name)
+	wgPlanObj, err := c.wgPlanLister.Get(objectRef.Name)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			utilruntime.HandleErrorWithContext(ctx, err, "WireGuardNetworkPlan referenced by item in work queue no longer exists", "objectReference", objectRef)
@@ -304,16 +307,16 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return err
 	}
 
-	deletionTime := wgObj.GetDeletionTimestamp()
+	deletionTime := wgPlanObj.GetDeletionTimestamp()
 	if deletionTime != nil {
 		// Clean up underlying resources, then
 		// clear all finalizers from the object
 
 		// todo: clean up underlying resources (those WireGuardInterface resources that has ownerReference pointing to this WireGuardNetworkPlan)
 
-		wgObjCopy := wgObj.DeepCopy()
-		wgObjCopy.SetFinalizers([]string{})
-		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardNetworkPlans().Update(context.Background(), wgObjCopy, metav1.UpdateOptions{})
+		wgPlanObjCopy := wgPlanObj.DeepCopy()
+		wgPlanObjCopy.SetFinalizers([]string{})
+		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardNetworkPlans().Update(context.Background(), wgPlanObjCopy, metav1.UpdateOptions{})
 		if err != nil {
 			if !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("failed to clear finalizers from WireGuardNetworkPlan, will retry: %s", err.Error())
@@ -324,12 +327,15 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	}
 
 	// todo: reconcile logic goes here
+
 	// 1. work out an actual plan from the spec
+	actualPlan, err := c.NewWGActualPlanFromObj(wgPlanObj)
+
 	// 2. query the lister to get depedent WireGuardInterface resources that are controlled by this
 	// 3. create or update any WireGuardInterface resources that are needed
 
 	// Update the status with current WireGuard interface information
-	err = c.updateWireGuardNetworkPlanStatus(ctx, wgObj)
+	err = c.updateWireGuardNetworkPlanStatus(ctx, wgPlanObj)
 	if err != nil {
 		return fmt.Errorf("failed to update WireGuard interface status: %s", err.Error())
 	}
@@ -459,10 +465,107 @@ func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject(wgPlanName stri
 }
 
 type WGActualPlan struct {
-	Interfaces []WGActualPlanInterface
+	Interfaces []*WGActualPlanInterface
 }
 
-func NewWGActualPlanFromSpec(spec *networkingv1alpha1.WireGuardNetworkPlan) (*WGActualPlan, error) {
-	// todo: implement this
-	return nil, nil
+func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGuardNetworkPlan) (*WGActualPlan, error) {
+	if wgPlanObj.Spec.DB == nil {
+		return nil, fmt.Errorf("spec.db is nil")
+	}
+
+	plan := new(WGActualPlan)
+
+	type nodeEntry struct {
+		nodeName   string
+		hostName   string
+		portRange  *networkingv1alpha1.WireGuardNetworkPlanPortRangeSpec
+		privateKey string
+		publicKey  string
+	}
+
+	nodeEntries := make(map[string]*nodeEntry)
+	for _, node := range wgPlanObj.Spec.DB.Nodes {
+		ent := nodeEntry{
+			nodeName:   node.NodeName,
+			hostName:   "",
+			portRange:  &wgPlanObj.Spec.DB.DefaultPortRange,
+			privateKey: "",
+			publicKey:  "",
+		}
+		if node.Underlay != nil {
+			if node.Underlay.Hostname != "" {
+				ent.hostName = node.Underlay.Hostname
+			}
+			if node.Underlay.PortRange != nil {
+				ent.portRange = node.Underlay.PortRange
+			}
+		}
+		if node.PrivateKeyRef.Name == "" {
+			return nil, fmt.Errorf("privateKeyRef.name of node %s is empty", node.NodeName)
+		}
+		if node.PrivateKeyRef.Key == "" {
+			return nil, fmt.Errorf("privateKeyRef.key of node %s is empty", node.NodeName)
+		}
+		secNs := "default"
+		if node.PrivateKeyRef.Namespace != nil && *node.PrivateKeyRef.Namespace != "" {
+			secNs = *node.PrivateKeyRef.Namespace
+		}
+		secObj, err := c.secretsLister.Secrets(secNs).Get(node.PrivateKeyRef.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get secret %s/%s: %s", secNs, node.PrivateKeyRef.Name, err.Error())
+		}
+
+		ent.privateKey = base64.StdEncoding.EncodeToString(secObj.Data[node.PrivateKeyRef.Key])
+		keyObj, err := wgtypes.ParseKey(ent.privateKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key %s: %s", ent.privateKey, err.Error())
+		}
+		ent.publicKey = keyObj.PublicKey().String()
+
+		nodeEntries[node.NodeName] = &ent
+	}
+
+	if wgPlanObj.Spec.Adjacency == nil {
+		return nil, fmt.Errorf("spec.adjacency is nil")
+	}
+
+	planIntfObjs := make([]*WGActualPlanInterface, 0)
+	plan.Interfaces = planIntfObjs
+	for _, link := range wgPlanObj.Spec.Adjacency.Links {
+		fromNode, found := nodeEntries[link.FromNode]
+		if !found {
+			return nil, fmt.Errorf("node %s not found in nodeEntries", link.FromNode)
+		}
+
+		toNodes := make([]string, 0)
+		toNodes = append(toNodes, link.ToNodes...)
+		sort.Strings(toNodes)
+
+		for linkIdx, toNode := range toNodes {
+			toNode, found := nodeEntries[toNode]
+			if !found {
+				return nil, fmt.Errorf("node %s not found in nodeEntries", toNode)
+			}
+
+			planIntfObj := new(WGActualPlanInterface)
+			planIntfObj.Node = link.FromNode
+			planIntfObj.InterfaceName = planIntfObj.GetWGIntfName(link.FromNode, toNode.nodeName, linkIdx)
+			planIntfObj.WGIntfName = planIntfObj.InterfaceName
+			if fromNode.hostName != "" {
+				// not behind a NAT
+				baseListenPort := fromNode.portRange.Start
+				planIntfObj.ListenPort = &baseListenPort
+				planIntfObj.Hostname = fromNode.hostName
+			}
+			planIntfObj.PrivateKey = fromNode.privateKey
+			planIntfObj.PublicKey = fromNode.publicKey
+			planIntfObj.ResourceId = planIntfObj.GetResourceId(link.FromNode, toNode.nodeName, linkIdx)
+			if err := planIntfObj.ComputeConfigHash(); err != nil {
+				return nil, fmt.Errorf("failed to compute config hash for interface %s: %s", planIntfObj.InterfaceName, err.Error())
+			}
+			planIntfObjs = append(planIntfObjs, planIntfObj)
+		}
+	}
+
+	return plan, nil
 }
