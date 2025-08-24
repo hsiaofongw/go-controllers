@@ -359,6 +359,31 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	}
 
 	// 4. create or update the WireGuardInterface resources that are needed
+	for _, item := range resourceSet.ShouldBeAdded {
+		wgActualIntfObj := item.(*WGActualPlanInterface)
+		wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name)
+		_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Create(ctx, wgIntfObj, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create WireGuardInterface resource: %s", err.Error())
+		}
+	}
+
+	for _, item := range resourceSet.ShouldBeRemoved {
+		wgIntfObj := item.(*networkingv1alpha1.WireGuardInterface)
+		err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Delete(ctx, wgIntfObj.Name, metav1.DeleteOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to delete WireGuardInterface resource: %s", err.Error())
+		}
+	}
+
+	for _, item := range resourceSet.ShouldBeUpdated {
+		wgActualIntfObj := item.(*WGActualPlanInterface)
+		wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name)
+		_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Update(ctx, wgIntfObj, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update WireGuardInterface resource: %s", err.Error())
+		}
+	}
 
 	// Update the status with current WireGuard interface information
 	err = c.updateWireGuardNetworkPlanStatus(ctx, wgPlanObj)
@@ -601,8 +626,11 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 // 2. The 'ShouldBeRemoved' set contains the ResourceIds of the resources that is in the rhs set but not the lhs set.
 // 3. The 'ShouldBeUpdated' set contains those that are in both sets (lhs and rhs) but differs in the ConfigHash.
 type ResourceSet struct {
-	ShouldBeAdded   map[string]interface{}
+	// the type of the value of the 'ShouldBeAdded' map is equal to that of the value type of the lhs map.
+	ShouldBeAdded map[string]interface{}
+	// the type of the value of the 'ShouldBeRemoved' map is equal to that of the value type of the rhs map.
 	ShouldBeRemoved map[string]interface{}
+	// the type of the value of the 'ShouldBeUpdated' map is equal to that of the value type of the lhs map.
 	ShouldBeUpdated map[string]interface{}
 }
 
