@@ -18,6 +18,8 @@ package wgplan
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -377,6 +379,65 @@ type WGActualPlanInterface struct {
 	// for a update, if the ConfigHash of the WireGuardInterface resource doesn't match that of this one,
 	// then it is the moment to reconcile the spec of the WireGuardInterface resource to re-converge it to here.
 	ConfigHash string
+}
+
+func (wgaIntf *WGActualPlanInterface) GetResourceId(fromNode, toNode string, linkIdx int) string {
+	return fmt.Sprintf("%s-%s-%d", fromNode, toNode, linkIdx)
+}
+
+func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
+	type configHashPayload struct {
+		InterfaceName string `json:"interfaceName"`
+		ListenPort    *int   `json:"listenPort"`
+		Hostname      string `json:"hostname"`
+		PublicKey     string `json:"publicKey"`
+		PrivateKey    string `json:"privateKey"`
+	}
+	payload := configHashPayload{
+		InterfaceName: wgaIntf.InterfaceName,
+		ListenPort:    wgaIntf.ListenPort,
+		Hostname:      wgaIntf.Hostname,
+		PublicKey:     wgaIntf.PublicKey,
+		PrivateKey:    wgaIntf.PrivateKey,
+	}
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	wgaIntf.ConfigHash = fmt.Sprintf("%x", sha256.Sum256(jsonPayload))
+	return nil
+}
+
+func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject() *networkingv1alpha1.WireGuardInterface {
+	if wgaIntf.ResourceId == "" {
+		// to remind the developer that the resourceId must be generated before calling this function.
+		panic("ResourceId is empty")
+	}
+
+	if wgaIntf.ConfigHash == "" {
+		// to remind the developer that the configHash must be generated before calling this function.
+		panic("ConfigHash is empty")
+	}
+
+	return &networkingv1alpha1.WireGuardInterface{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: wgaIntf.ResourceId,
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "networking.k8s.io/v1alpha1",
+					Kind:       "WireGuardNetworkPlan",
+					Name:       wgaIntf.ResourceId,
+				},
+			},
+			Labels: map[string]string{
+				"networkplan.networking.k8s.io/resourceId": wgaIntf.ResourceId,
+				"networkplan.networking.k8s.io/configHash": wgaIntf.ConfigHash,
+			},
+		},
+		Spec: networkingv1alpha1.WireGuardInterfaceSpec{
+			// todo: these are todos
+		},
+	}
 }
 
 type WGActualPlan struct {
