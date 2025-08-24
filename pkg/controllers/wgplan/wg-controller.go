@@ -358,6 +358,9 @@ type WGActualPlanInterface struct {
 	Node          string
 	InterfaceName string
 
+	// Name of underlying WireGuardInterface resource.
+	WGIntfName string
+
 	// if no listen port, means that the node is behind a NAT.
 	ListenPort *int
 
@@ -385,8 +388,13 @@ func (wgaIntf *WGActualPlanInterface) GetResourceId(fromNode, toNode string, lin
 	return fmt.Sprintf("%s-%s-%d", fromNode, toNode, linkIdx)
 }
 
+func (wgaIntf *WGActualPlanInterface) GetWGIntfName(fromNode, toNode string, linkIdx int) string {
+	return fmt.Sprintf("wg-%s-%s-%d", fromNode, toNode, linkIdx)
+}
+
 func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
 	type configHashPayload struct {
+		WGIntfName    string `json:"wgIntfName"`
 		InterfaceName string `json:"interfaceName"`
 		ListenPort    *int   `json:"listenPort"`
 		Hostname      string `json:"hostname"`
@@ -394,6 +402,7 @@ func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
 		PrivateKey    string `json:"privateKey"`
 	}
 	payload := configHashPayload{
+		WGIntfName:    wgaIntf.WGIntfName,
 		InterfaceName: wgaIntf.InterfaceName,
 		ListenPort:    wgaIntf.ListenPort,
 		Hostname:      wgaIntf.Hostname,
@@ -408,7 +417,7 @@ func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
 	return nil
 }
 
-func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject() *networkingv1alpha1.WireGuardInterface {
+func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject(wgPlanName string) *networkingv1alpha1.WireGuardInterface {
 	if wgaIntf.ResourceId == "" {
 		// to remind the developer that the resourceId must be generated before calling this function.
 		panic("ResourceId is empty")
@@ -419,19 +428,28 @@ func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject() *networkingv1
 		panic("ConfigHash is empty")
 	}
 
+	if wgaIntf.WGIntfName == "" {
+		// to remind the developer that the wgIntfName must be generated before calling this function.
+		panic("WGIntfName is empty")
+	}
+
 	return &networkingv1alpha1.WireGuardInterface{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: wgaIntf.ResourceId,
+			Name: wgaIntf.WGIntfName,
 			OwnerReferences: []metav1.OwnerReference{
 				{
-					APIVersion: "networking.k8s.io/v1alpha1",
+					APIVersion: "networking.dn42.io/v1alpha1",
 					Kind:       "WireGuardNetworkPlan",
-					Name:       wgaIntf.ResourceId,
+					Name:       wgPlanName,
 				},
 			},
 			Labels: map[string]string{
-				"networkplan.networking.k8s.io/resourceId": wgaIntf.ResourceId,
-				"networkplan.networking.k8s.io/configHash": wgaIntf.ConfigHash,
+				"networkplan.networking.dn42.io/resourceId":       wgaIntf.ResourceId, // by comparing the resourceId, we can know which resources need to be created or deleted.
+				"networkplan.networking.dn42.io/configHash":       wgaIntf.ConfigHash, // by comparing the configHash against that in the computed value, we can decide whether this resource is needed to be updated.
+				"networkplan.networking.dn42.io/is-controlled-by": wgPlanName,         // use this label to facilitate the selection of dependent resources.
+			},
+			Finalizers: []string{
+				"networkplan.networking.dn42.io/finalizer",
 			},
 		},
 		Spec: networkingv1alpha1.WireGuardInterfaceSpec{
