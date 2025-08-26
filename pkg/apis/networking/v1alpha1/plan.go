@@ -107,6 +107,7 @@ type WireGuardNetworkPlanSpec struct {
 }
 
 type WireGuardNetworkPlanInterfaceStatus struct {
+	WGObjectRef   string   `json:"wgObjectRef"`
 	NodeName      string   `json:"nodeName"`
 	HostName      string   `json:"hostName,omitempty"`
 	LastHandshake *int64   `json:"lastHandshake,omitempty"`

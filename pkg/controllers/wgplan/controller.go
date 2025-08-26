@@ -445,8 +445,9 @@ func (c *Controller) getCurrentWireGuardNetworkPlanStatus(wgIntfObjs []*networki
 
 	for _, wgIntfObj := range wgIntfObjs {
 		intfStatus := networkingv1alpha1.WireGuardNetworkPlanInterfaceStatus{
-			NodeName: wgIntfObj.Status.Nodename,
-			HostName: wgIntfObj.Status.Hostname,
+			WGObjectRef: wgIntfObj.Name,
+			NodeName:    wgIntfObj.Status.Nodename,
+			HostName:    wgIntfObj.Status.Hostname,
 		}
 
 		wgStatus := wgIntfObj.Status.WireGuard

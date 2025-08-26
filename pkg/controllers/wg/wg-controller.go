@@ -188,18 +188,6 @@ func NewController(
 		},
 	})
 
-	// Set up event handler for when WireGuardNetworkPlan resources change
-	config.WgPlanInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			objMeta, _ := obj.(metav1.Object)
-			logger.Info("Updating WireGuardNetworkPlan due to creation", "objectReference", klog.KObj(objMeta))
-		},
-		UpdateFunc: func(old, new interface{}) {
-			objMeta, _ := new.(metav1.Object)
-			logger.Info("Updating WireGuardNetworkPlan due to update", "objectReference", klog.KObj(objMeta))
-		},
-	})
-
 	return controller
 }
 
