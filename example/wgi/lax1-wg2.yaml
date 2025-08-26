@@ -1,0 +1,45 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wg2
+  namespace: default
+type: Opaque
+data:
+  privatekey: "SDb15JjhjpOzbKZIRMDI21loC7fK9Kh32AK4kN6mmGw="
+---
+apiVersion: networking.dn42.io/v1alpha1
+kind: WireGuardInterface
+metadata:
+  name: wg2
+  labels:
+    dn42.dev/asn: "4242421771"
+  finalizers:
+    - wireguardinterface.networking.dn42.io/finalizer
+spec:
+  node: lax1
+  moveToContainer: true
+  container:
+    docker:
+      name: agent2
+  interfaceName: wg2
+  privateKeySecretRef:
+    name: wg2
+    key: privatekey
+    namespace: default
+  addresses:
+    - family: inet6
+      local: "fe80::a:1771"
+      peer: "fe80::1771"
+      prefixlen: 64
+      noPrefixRoute: true
+  listenPort: 51022
+  mtu: 1420
+  peers:
+    - publicKey: "pFP7qkpjCfcSzpSgWmPVll3OPJfnZfW54S0NDQCH6Ug="
+      allowedIPs:
+        - "0.0.0.0/0"
+        - "::/0"
+      endpoint: 192.168.65.3:51021
+---
+

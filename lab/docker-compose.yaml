@@ -1,0 +1,51 @@
+volumes:
+  home: {}
+services:
+  # agentx is the master controller that manages the other agents
+  agentx:
+    image: agent:test
+    command:
+      - /bin/bash
+      # - /root/projects/go-projects/go-controller/controller/bin/controller
+      # - '--kubeconfig=/root/.kube/config'
+      # - '-v'
+      # - '4'
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    pid: host
+    network_mode: host
+    volumes:
+      - home:/root
+      - ../../:/root/projects/go-projects
+      - ../../../../.kube/config:/root/.kube/config:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /root
+    hostname: agentx
+    container_name: agentx
+  # agent1 is a normal agent that will be managed by agentx
+  agent1:
+    hostname: agent1
+    container_name: agent1
+    image: agent:test
+    command:
+      - /bin/bash
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+  # agent2 is a normal agent that will be managed by agentx
+  agent2:
+    hostname: agent2
+    container_name: agent2
+    image: agent:test
+    command:
+      - /bin/bash
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
