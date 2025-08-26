@@ -88,6 +88,8 @@ type Controller struct {
 	// recorder is an event recorder for recording Event resources to the
 	// Kubernetes API.
 	recorder record.EventRecorder
+
+	dryRun bool
 }
 
 type ControllerConfig struct {
@@ -97,6 +99,7 @@ type ControllerConfig struct {
 	WgInformer      v1alpha1Informer.WireGuardInterfaceInformer
 	WgPlanInformer  v1alpha1Informer.WireGuardNetworkPlanInformer
 	SecretsInformer secretsinformers.SecretInformer
+	DryRun          bool
 }
 
 // NewController returns a new WireGuardInterface controller
@@ -111,6 +114,9 @@ func NewController(
 	// logged for WireGuardInterface types.
 	utilruntime.Must(samplescheme.AddToScheme(scheme.Scheme))
 	logger.V(4).Info("Creating event broadcaster")
+	if config.DryRun {
+		logger.Info("Dry run mode is enabled, the controller won't make any actual changes to the node")
+	}
 
 	eventBroadcaster := record.NewBroadcaster(record.WithContext(ctx))
 	eventBroadcaster.StartStructuredLogging(0)
@@ -140,6 +146,7 @@ func NewController(
 		secretsSynced:   config.SecretsInformer.Informer().HasSynced,
 		workqueue:       workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:        recorder,
+		dryRun:          config.DryRun,
 	}
 
 	logger.Info("Setting up event handlers")
@@ -344,6 +351,11 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 			}
 		}
 
+		return nil
+	}
+
+	if c.dryRun {
+		logger.Info("Dry run mode is enabled, skipping underlying resources manipulation")
 		return nil
 	}
 
