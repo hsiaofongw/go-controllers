@@ -8,6 +8,7 @@ godebug default=go1.24
 
 require (
 	example.com/go-util v0.0.0-00010101000000-000000000000
+	github.com/cbergoon/merkletree v0.2.0
 	github.com/docker/docker v28.3.3+incompatible
 	github.com/google/gnostic-models v0.7.0
 	github.com/spf13/pflag v1.0.6
@@ -29,7 +30,6 @@ require (
 require (
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/Microsoft/go-winio v0.4.21 // indirect
-	github.com/cbergoon/merkletree v0.2.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
@@ -93,4 +93,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace example.com/go-util => ../../go-util
+replace example.com/go-util => ../go-util

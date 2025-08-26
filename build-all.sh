@@ -5,16 +5,19 @@ set -e
 scriptPath=$(realpath $0)
 scriptDir=$(dirname $scriptPath)
 
+echo "Checking kubectl version ..."
+kubectl version
+
 echo "Generating clientset and deepcopy code ..."
-cd $scriptDir/hack
+cd "$scriptDir/hack"
 ./update-codegen.sh
 
 echo "Generating CRDs ..."
-cd $scriptDir
+cd "$scriptDir"
 ./gen-crds.sh
 
 # echo "Applying CRDs ..."
-kubectl apply -f $scriptDir/../crds
+kubectl apply -f $scriptDir/crds
 
 echo "Building executables ..."
 for cmd in cmd/*; do
