@@ -19,6 +19,7 @@ package wgplan
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -39,6 +40,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	secretsinformers "k8s.io/client-go/informers/core/v1"
@@ -385,7 +387,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		// 4. create or update the WireGuardInterface resources that are needed
 		for _, item := range resourceSet.ShouldBeAdded {
 			wgActualIntfObj := item.(*WGActualPlanInterface)
-			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name, wgPlanObj.GetGeneration())
+			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.GetUID(), wgPlanObj.Name, wgPlanObj.GetGeneration())
 			_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Create(ctx, wgIntfObj, metav1.CreateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to create WireGuardInterface resource: %s", err.Error())
@@ -402,7 +404,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 		for _, item := range resourceSet.ShouldBeUpdated {
 			wgActualIntfObj := item.(*WGActualPlanInterface)
-			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name, wgPlanObj.GetGeneration())
+			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.GetUID(), wgPlanObj.Name, wgPlanObj.GetGeneration())
 			_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Update(ctx, wgIntfObj, metav1.UpdateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to update WireGuardInterface resource: %s", err.Error())
@@ -690,11 +692,13 @@ func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
 	}
 
 	mkTreeRoot := mkTree.MerkleRoot()
-	wgaIntf.ConfigHash = fmt.Sprintf("%x", mkTreeRoot)
+	sha1Hash := sha1.Sum(mkTreeRoot[:])
+
+	wgaIntf.ConfigHash = fmt.Sprintf("%x", sha1Hash)
 	return nil
 }
 
-func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject(wgPlanName string, wgPlanGeneration int64) *networkingv1alpha1.WireGuardInterface {
+func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject(wgPlanUID types.UID, wgPlanName string, wgPlanGeneration int64) *networkingv1alpha1.WireGuardInterface {
 	if wgaIntf.ResourceId == "" {
 		// to remind the developer that the resourceId must be generated before calling this function.
 		panic("ResourceId is empty")
@@ -718,6 +722,7 @@ func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject(wgPlanName stri
 					APIVersion: "networking.dn42.io/v1alpha1",
 					Kind:       "WireGuardNetworkPlan",
 					Name:       wgPlanName,
+					UID:        wgPlanUID,
 				},
 			},
 			Labels: map[string]string{
@@ -748,7 +753,7 @@ func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject(wgPlanName stri
 }
 
 type WGActualPlan struct {
-	Interfaces []*WGActualPlanInterface
+	Interfaces []*WGActualPlanInterface `json:"interfaces"`
 }
 
 func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGuardNetworkPlan) (*WGActualPlan, error) {
@@ -827,7 +832,7 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 	}
 
 	planIntfObjs := make([]*WGActualPlanInterface, 0)
-	plan.Interfaces = planIntfObjs
+
 	for _, link := range wgPlanObj.Spec.Links {
 		fromNode, found := nodeEntries[link.FromNode]
 		if !found {
@@ -911,6 +916,7 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 			planIntfObjs = append(planIntfObjs, planIntfObj)
 		}
 	}
+	plan.Interfaces = planIntfObjs
 
 	return plan, nil
 }
@@ -921,11 +927,11 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 // 3. The 'ShouldBeUpdated' set contains those that are in both sets (lhs and rhs) but differs in the ConfigHash.
 type ResourceSet struct {
 	// the type of the value of the 'ShouldBeAdded' map is equal to that of the value type of the lhs map.
-	ShouldBeAdded map[string]interface{}
+	ShouldBeAdded map[string]interface{} `json:"shouldBeAdded"`
 	// the type of the value of the 'ShouldBeRemoved' map is equal to that of the value type of the rhs map.
-	ShouldBeRemoved map[string]interface{}
+	ShouldBeRemoved map[string]interface{} `json:"shouldBeRemoved"`
 	// the type of the value of the 'ShouldBeUpdated' map is equal to that of the value type of the lhs map.
-	ShouldBeUpdated map[string]interface{}
+	ShouldBeUpdated map[string]interface{} `json:"shouldBeUpdated"`
 }
 
 func (c *Controller) comparingResourceSets(lhs []*WGActualPlanInterface, rhs []*networkingv1alpha1.WireGuardInterface) (*ResourceSet, error) {
@@ -962,6 +968,7 @@ func (c *Controller) comparingResourceSets(lhs []*WGActualPlanInterface, rhs []*
 			result.ShouldBeUpdated[k] = lhsItem
 		}
 	}
+
 	return result, nil
 }
 
