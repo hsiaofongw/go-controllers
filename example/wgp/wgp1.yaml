@@ -11,14 +11,38 @@ spec:
     - nodeName: lax1
       underlay:
         hostname: 192.168.65.3
+      privateKey: "EBoAy8rh54aVJsbXx0kNrjEWfPtAowo/fC3I0AKJMGg="
+      moveToContainer: true
+      container:
+        docker:
+          name: agent1
+      mtu: 1420
+      addresses:
+        - family: inet
+          local: 10.4.0.1
+          peer: 10.4.0.2
+          prefixlen: 32
     - nodeName: lax2
+      privateKey: "2DMfYojtts0nGqXt2u0O5esZ1fm+qowoWV2sb6QfA0k="
+      moveToContainer: true
+      container:
+        docker:
+          name: agent2
+      mtu: 1420
+      addresses:
+        - family: inet
+          local: 10.4.0.2
+          peer: 10.4.0.1
+          prefixlen: 32
   # just set up a default port range here,
   # so that it's not needed to set it on each node separately.
   defaultPortRange:
     start: 51800
-    end: 51820
+    end: 51819
   links:
     - fromNode: lax1
-      toNode: lax2
+      toNodes:
+        - nodeName: lax2
     - fromNode: lax2
-      toNode: lax1
+      toNodes:
+        - nodeName: lax1
