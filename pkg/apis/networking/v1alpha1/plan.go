@@ -57,8 +57,12 @@ type WireGuardNetworkPlanNodeSpec struct {
 	// If this node is behind a NAT, the `Underlay` field can be safely omitted.
 	Underlay *WireGuardNetworkPlanUnderlaySpec `json:"underlay,omitempty"`
 
-	// PrivateKey is the private key of the node.
-	PrivateKeyRef PrivateKeySecretRef `json:"privateKeyRef"`
+	// PrivateKey is the per-node private key for setting up the WireGuard tunnels.
+	// If it is provided (i.e. not nil), the PrivateKeyRef field will not be used.
+	PrivateKey *string `json:"privateKey,omitempty"`
+
+	// PrivateKeyRef is the reference to the secret that contains the private key of the node.
+	PrivateKeyRef *PrivateKeySecretRef `json:"privateKeyRef,omitempty"`
 
 	// MoveToContainer is a flag to indicate whether the node should be moved to a container once just created.
 	MoveToContainer bool `json:"moveToContainer,omitempty"`
@@ -72,14 +76,6 @@ type WireGuardNetworkPlanNodeSpec struct {
 	// Addresses would be assigned to every WireGuard interface created on the node/container.
 	// There is also per-link addresses (on WireGuardNetworkPlanLinkSpec).
 	Addresses []WireGuardInterfaceAddressSpec `json:"addresses,omitempty"`
-}
-
-type WireGuardNetworkPlanDBSpec struct {
-	Nodes []WireGuardNetworkPlanNodeSpec `json:"nodes,omitempty"`
-
-	// DefaultPortRange is the default port range to allocate for the WireGuard ListenPort.
-	// If a node has its own `Underlay` field, or the node is behind a NAT, the `DefaultPortRange` is not used.
-	DefaultPortRange WireGuardNetworkPlanPortRangeSpec `json:"defaultPortRange"`
 }
 
 type WireGuardNetworkPlanLinkPeerSpec struct {
@@ -96,14 +92,15 @@ type WireGuardNetworkPlanLinkSpec struct {
 	ToNodes  []WireGuardNetworkPlanLinkPeerSpec `json:"toNodes"`
 }
 
-type WireGuardNetworkPlanAdjacencySpec struct {
-	Links []WireGuardNetworkPlanLinkSpec `json:"links,omitempty"`
-}
-
 // WireGuardNetworkPlanSpec is the spec for a WireGuardNetworkPlan resource
 type WireGuardNetworkPlanSpec struct {
-	DB        *WireGuardNetworkPlanDBSpec        `json:"db,omitempty"`
-	Adjacency *WireGuardNetworkPlanAdjacencySpec `json:"adjacency,omitempty"`
+	Nodes []WireGuardNetworkPlanNodeSpec `json:"nodes,omitempty"`
+
+	// DefaultPortRange is the default port range to allocate for the WireGuard ListenPort.
+	// If a node has its own `Underlay` field, or the node is behind a NAT, the `DefaultPortRange` is not used.
+	DefaultPortRange WireGuardNetworkPlanPortRangeSpec `json:"defaultPortRange"`
+
+	Links []WireGuardNetworkPlanLinkSpec `json:"links,omitempty"`
 }
 
 type WireGuardNetworkPlanInterfaceStatus struct {

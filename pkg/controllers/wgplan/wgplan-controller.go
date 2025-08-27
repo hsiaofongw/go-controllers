@@ -72,7 +72,6 @@ const (
 
 // Controller is the controller implementation for WireGuardInterface resources
 type Controller struct {
-	nodename     string
 	dockerClient *dockerSDK.Client
 	// kubeclientset is a standard kubernetes clientset
 	kubeclientset kubernetes.Interface
@@ -99,7 +98,6 @@ type Controller struct {
 }
 
 type ControllerConfig struct {
-	Nodename        string
 	Kubeclientset   kubernetes.Interface
 	Sampleclientset clientset.Interface
 	WgInformer      v1alpha1Informer.WireGuardInterfaceInformer
@@ -136,7 +134,6 @@ func NewController(
 	}
 
 	controller := &Controller{
-		nodename:        config.Nodename,
 		dockerClient:    dockerClient,
 		kubeclientset:   config.Kubeclientset,
 		sampleclientset: config.Sampleclientset,
@@ -215,7 +212,7 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	}
 
 	// Start the informer factories to begin populating the informer caches
-	logger.Info("Starting controller", "nodename", c.nodename, "hostname", hostname)
+	logger.Info("Starting controller", "hostname", hostname)
 
 	// Wait for the caches to be synced before starting workers
 	logger.Info("Waiting for informer caches to sync")
@@ -707,9 +704,6 @@ type WGActualPlan struct {
 }
 
 func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGuardNetworkPlan) (*WGActualPlan, error) {
-	if wgPlanObj.Spec.DB == nil {
-		return nil, fmt.Errorf("spec.db is nil")
-	}
 
 	plan := new(WGActualPlan)
 
@@ -721,33 +715,31 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 	}
 
 	nodeEntries := make(map[string]*nodeEntry)
-	for _, node := range wgPlanObj.Spec.DB.Nodes {
+	for _, node := range wgPlanObj.Spec.Nodes {
 		ent := nodeEntry{
 			nodeSpec:  node,
-			portRange: &wgPlanObj.Spec.DB.DefaultPortRange,
+			portRange: &wgPlanObj.Spec.DefaultPortRange,
 		}
 		if node.Underlay != nil && node.Underlay.PortRange != nil {
 			ent.portRange = node.Underlay.PortRange
 		}
 
-		if node.PrivateKeyRef.Name == "" {
-			return nil, fmt.Errorf("privateKeyRef.name of node %s is empty", node.NodeName)
-		}
-		if node.PrivateKeyRef.Key == "" {
-			return nil, fmt.Errorf("privateKeyRef.key of node %s is empty", node.NodeName)
+		if node.PrivateKey != nil && *node.PrivateKey != "" {
+			ent.privateKey = *node.PrivateKey
 		}
 
-		secNs := "default"
-		if node.PrivateKeyRef.Namespace != nil && *node.PrivateKeyRef.Namespace != "" {
-			secNs = *node.PrivateKeyRef.Namespace
+		if ent.privateKey == "" {
+			pk, err := c.getPrivKey(node.PrivateKey, node.PrivateKeyRef)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get private key of node %s: %s", node.NodeName, err.Error())
+			}
+			if pk == "" {
+				return nil, fmt.Errorf("private key of node %s is empty", node.NodeName)
+			}
+
+			ent.privateKey = pk
 		}
 
-		secObj, err := c.secretsLister.Secrets(secNs).Get(node.PrivateKeyRef.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get secret %s/%s: %s", secNs, node.PrivateKeyRef.Name, err.Error())
-		}
-
-		ent.privateKey = base64.StdEncoding.EncodeToString(secObj.Data[node.PrivateKeyRef.Key])
 		keyObj, err := wgtypes.ParseKey(ent.privateKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse private key %s: %s", ent.privateKey, err.Error())
@@ -757,12 +749,8 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 		nodeEntries[node.NodeName] = &ent
 	}
 
-	if wgPlanObj.Spec.Adjacency == nil {
-		return nil, fmt.Errorf("spec.adjacency is nil")
-	}
-
 	linkIdxMap := make(map[string]map[string]int)
-	for _, link := range wgPlanObj.Spec.Adjacency.Links {
+	for _, link := range wgPlanObj.Spec.Links {
 		toNodes := make([]networkingv1alpha1.WireGuardNetworkPlanLinkPeerSpec, 0)
 		toNodes = append(toNodes, link.ToNodes...)
 		sort.Slice(toNodes, func(i, j int) bool {
@@ -792,7 +780,7 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 
 	planIntfObjs := make([]*WGActualPlanInterface, 0)
 	plan.Interfaces = planIntfObjs
-	for _, link := range wgPlanObj.Spec.Adjacency.Links {
+	for _, link := range wgPlanObj.Spec.Links {
 		fromNode, found := nodeEntries[link.FromNode]
 		if !found {
 			return nil, fmt.Errorf("node %s not found in nodeEntries", link.FromNode)
@@ -959,4 +947,33 @@ func getDifferenceSets(lhs, rhs map[string]interface{}) (added, removed, union, 
 	}
 
 	return addedSet, removedSet, unionSet, commonSet
+}
+
+func (c *Controller) getPrivKey(privKey *string, privKeySecRef *networkingv1alpha1.PrivateKeySecretRef) (string, error) {
+	if privKey != nil && *privKey != "" {
+		return *privKey, nil
+	}
+
+	if privKeySecRef == nil {
+		return "", fmt.Errorf("privateKeyRef is nil and spec.privateKey is not provided")
+	}
+
+	if privKeySecRef.Name == "" {
+		return "", fmt.Errorf("privateKeyRef.name is empty")
+	}
+	if privKeySecRef.Key == "" {
+		return "", fmt.Errorf("privateKeyRef.key is empty")
+	}
+
+	secNs := "default"
+	if privKeySecRef.Namespace != nil && *privKeySecRef.Namespace != "" {
+		secNs = *privKeySecRef.Namespace
+	}
+
+	secObj, err := c.secretsLister.Secrets(secNs).Get(privKeySecRef.Name)
+	if err != nil {
+		return "", fmt.Errorf("failed to get secret %s/%s: %s", secNs, privKeySecRef.Name, err.Error())
+	}
+
+	return base64.StdEncoding.EncodeToString(secObj.Data[privKeySecRef.Key]), nil
 }

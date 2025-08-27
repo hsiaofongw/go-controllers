@@ -5,22 +5,20 @@ metadata:
   finalizers:
     - wireguardnetworkplans.networking.dn42.io/finalizer
 spec:
-  db:
-    nodes:
-      # let's pretend that lax1 has a public IP address,
-      # while lax2 is behind a NAT.
-      - nodeName: lax1
-        underlay:
-          hostname: 192.168.65.3
-      - nodeName: lax2
-    # just set up a default port range here,
-    # so that it's not needed to set it on each node separately.
-    defaultPortRange:
-      start: 51800
-      end: 51820
-  adjacency:
-    links:
-      - fromNode: lax1
-        toNode: lax2
-      - fromNode: lax2
-        toNode: lax1
+  nodes:
+    # let's pretend that lax1 has a public IP address,
+    # while lax2 is behind a NAT.
+    - nodeName: lax1
+      underlay:
+        hostname: 192.168.65.3
+    - nodeName: lax2
+  # just set up a default port range here,
+  # so that it's not needed to set it on each node separately.
+  defaultPortRange:
+    start: 51800
+    end: 51820
+  links:
+    - fromNode: lax1
+      toNode: lax2
+    - fromNode: lax2
+      toNode: lax1

@@ -44,170 +44,168 @@ spec:
             description: WireGuardNetworkPlanSpec is the spec for a WireGuardNetworkPlan
               resource
             properties:
-              adjacency:
+              defaultPortRange:
+                description: |-
+                  DefaultPortRange is the default port range to allocate for the WireGuard ListenPort.
+                  If a node has its own `Underlay` field, or the node is behind a NAT, the `DefaultPortRange` is not used.
                 properties:
-                  links:
-                    items:
-                      properties:
-                        fromNode:
-                          type: string
-                        toNodes:
-                          items:
-                            properties:
-                              addresses:
-                                items:
-                                  properties:
-                                    family:
-                                      type: string
-                                    local:
-                                      type: string
-                                    noPrefixRoute:
-                                      type: boolean
-                                    peer:
-                                      type: string
-                                    prefixlen:
-                                      type: integer
-                                  required:
-                                  - family
-                                  - local
-                                  - noPrefixRoute
-                                  - peer
-                                  - prefixlen
-                                  type: object
-                                type: array
-                              nodeName:
-                                type: string
-                              overrideAddresses:
-                                description: If this is true, the per-link addresses
-                                  specified here will override the per-node addresses
-                                  instead of appending to them.
-                                type: boolean
-                            required:
-                            - nodeName
-                            type: object
-                          type: array
-                      required:
-                      - fromNode
-                      - toNodes
-                      type: object
-                    type: array
+                  end:
+                    type: integer
+                  start:
+                    type: integer
+                required:
+                - end
+                - start
                 type: object
-              db:
-                properties:
-                  defaultPortRange:
-                    description: |-
-                      DefaultPortRange is the default port range to allocate for the WireGuard ListenPort.
-                      If a node has its own `Underlay` field, or the node is behind a NAT, the `DefaultPortRange` is not used.
-                    properties:
-                      end:
-                        type: integer
-                      start:
-                        type: integer
-                    required:
-                    - end
-                    - start
-                    type: object
-                  nodes:
-                    items:
-                      properties:
-                        addresses:
-                          description: |-
-                            Addresses would be assigned to every WireGuard interface created on the node/container.
-                            There is also per-link addresses (on WireGuardNetworkPlanLinkSpec).
-                          items:
-                            properties:
-                              family:
-                                type: string
-                              local:
-                                type: string
-                              noPrefixRoute:
-                                type: boolean
-                              peer:
-                                type: string
-                              prefixlen:
-                                type: integer
-                            required:
-                            - family
-                            - local
-                            - noPrefixRoute
-                            - peer
-                            - prefixlen
-                            type: object
-                          type: array
-                        container:
-                          description: Container is where to host the WireGuardInterface
-                            when provided, otherwise it's in the host netns.
-                          properties:
-                            docker:
+              links:
+                items:
+                  properties:
+                    fromNode:
+                      type: string
+                    toNodes:
+                      items:
+                        properties:
+                          addresses:
+                            items:
                               properties:
-                                name:
+                                family:
                                   type: string
-                              required:
-                              - name
-                              type: object
-                            netns:
-                              properties:
-                                pid:
+                                local:
+                                  type: string
+                                noPrefixRoute:
+                                  type: boolean
+                                peer:
+                                  type: string
+                                prefixlen:
                                   type: integer
+                              required:
+                              - family
+                              - local
+                              - noPrefixRoute
+                              - peer
+                              - prefixlen
                               type: object
-                          type: object
-                        moveToContainer:
-                          description: MoveToContainer is a flag to indicate whether
-                            the node should be moved to a container once just created.
-                          type: boolean
-                        mtu:
-                          description: MTU is the MTU of the actual WireGuard interface
-                            created on the node/container, if omitted, the default
-                            MTU of 1420 will be used.
-                          type: integer
-                        nodeName:
-                          description: NodeName is the advertised name of the node
-                            controller.
-                          type: string
-                        privateKeyRef:
-                          description: PrivateKey is the private key of the node.
+                            type: array
+                          nodeName:
+                            type: string
+                          overrideAddresses:
+                            description: If this is true, the per-link addresses specified
+                              here will override the per-node addresses instead of
+                              appending to them.
+                            type: boolean
+                        required:
+                        - nodeName
+                        type: object
+                      type: array
+                  required:
+                  - fromNode
+                  - toNodes
+                  type: object
+                type: array
+              nodes:
+                items:
+                  properties:
+                    addresses:
+                      description: |-
+                        Addresses would be assigned to every WireGuard interface created on the node/container.
+                        There is also per-link addresses (on WireGuardNetworkPlanLinkSpec).
+                      items:
+                        properties:
+                          family:
+                            type: string
+                          local:
+                            type: string
+                          noPrefixRoute:
+                            type: boolean
+                          peer:
+                            type: string
+                          prefixlen:
+                            type: integer
+                        required:
+                        - family
+                        - local
+                        - noPrefixRoute
+                        - peer
+                        - prefixlen
+                        type: object
+                      type: array
+                    container:
+                      description: Container is where to host the WireGuardInterface
+                        when provided, otherwise it's in the host netns.
+                      properties:
+                        docker:
                           properties:
-                            key:
-                              type: string
                             name:
                               type: string
-                            namespace:
-                              type: string
                           required:
-                          - key
                           - name
                           type: object
-                        underlay:
-                          description: If this node is behind a NAT, the `Underlay`
-                            field can be safely omitted.
+                        netns:
                           properties:
-                            hostname:
-                              description: Hostname is the clearnet (or underlay)
-                                reachable DNS name or IP address of the node.
-                              type: string
-                            portRange:
-                              description: Port range is where to allocate for the
-                                WireGuard ListenPort. Inclusive.
-                              properties:
-                                end:
-                                  type: integer
-                                start:
-                                  type: integer
-                              required:
-                              - end
-                              - start
-                              type: object
+                            pid:
+                              type: integer
+                          type: object
+                      type: object
+                    moveToContainer:
+                      description: MoveToContainer is a flag to indicate whether the
+                        node should be moved to a container once just created.
+                      type: boolean
+                    mtu:
+                      description: MTU is the MTU of the actual WireGuard interface
+                        created on the node/container, if omitted, the default MTU
+                        of 1420 will be used.
+                      type: integer
+                    nodeName:
+                      description: NodeName is the advertised name of the node controller.
+                      type: string
+                    privateKey:
+                      description: |-
+                        PrivateKey is the per-node private key for setting up the WireGuard tunnels.
+                        If it is provided (i.e. not nil), the PrivateKeyRef field will not be used.
+                      type: string
+                    privateKeyRef:
+                      description: PrivateKeyRef is the reference to the secret that
+                        contains the private key of the node.
+                      properties:
+                        key:
+                          type: string
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                    underlay:
+                      description: If this node is behind a NAT, the `Underlay` field
+                        can be safely omitted.
+                      properties:
+                        hostname:
+                          description: Hostname is the clearnet (or underlay) reachable
+                            DNS name or IP address of the node.
+                          type: string
+                        portRange:
+                          description: Port range is where to allocate for the WireGuard
+                            ListenPort. Inclusive.
+                          properties:
+                            end:
+                              type: integer
+                            start:
+                              type: integer
                           required:
-                          - hostname
+                          - end
+                          - start
                           type: object
                       required:
-                      - nodeName
-                      - privateKeyRef
+                      - hostname
                       type: object
-                    type: array
-                required:
-                - defaultPortRange
-                type: object
+                  required:
+                  - nodeName
+                  type: object
+                type: array
+            required:
+            - defaultPortRange
             type: object
           status:
             description: |-
