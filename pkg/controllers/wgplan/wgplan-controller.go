@@ -160,7 +160,7 @@ func NewController(
 			oldWG := old.(*networkingv1alpha1.WireGuardNetworkPlan)
 			newWG := new.(*networkingv1alpha1.WireGuardNetworkPlan)
 
-			revisionChanged := newWG.ResourceVersion != oldWG.ResourceVersion
+			revisionChanged := newWG.GetResourceVersion() != oldWG.GetResourceVersion()
 			if revisionChanged {
 				logger.Info("Revision changed", "old", oldWG.ResourceVersion, "new", newWG.ResourceVersion, "objectReference", klog.KObj(newWG))
 			}
@@ -176,20 +176,17 @@ func NewController(
 				logger.Info("Generation lagged", "observedGeneration", oldWG.Status.ObservedGeneration, "new", newWG.GetGeneration(), "objectReference", klog.KObj(newWG))
 			}
 
-			if revisionChanged || generationChanged || generationLagged {
-				logger.Info("Updating WireGuardNetworkPlan due to both resourceVersion and generation are changed", "objectReference", klog.KObj(newWG))
-				controller.enqueueWG(new)
-			} else if newWG.GetDeletionTimestamp() != nil {
-				logger.Info("Updating WireGuardNetworkPlan due to deletion", "objectReference", klog.KObj(newWG))
-				controller.enqueueWG(new)
-			} else {
-				logger.Info("Updating WireGuardNetworkPlan due to force resync", "objectReference", klog.KObj(newWG))
+			if !revisionChanged {
+				logger.Info("Updating WireGuardNetworkPlan due to force resync, and resourceVersion is not changed", "objectReference", klog.KObj(newWG))
 				if err := controller.updateWireGuardNetworkPlanStatus(context.Background(), newWG); err != nil {
 					logger.Error(err, "Failed to update WireGuardInterface status", "objectReference", newWG.Name, "object is enqueued, and will retry later")
-					// if failed to update status, enqueue the object for a later retry, otherwise we'll have to wait for the next resync.
-					controller.enqueueWG(new)
+					// if failed to update status, simply give up rather than retry, because there's still next force-resync
 				}
+				return
 			}
+
+			logger.Info("Updating WireGuardNetworkPlan due to both resourceVersion and generation are changed", "objectReference", klog.KObj(newWG))
+			controller.enqueueWG(new)
 		},
 	})
 
@@ -346,54 +343,60 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return nil
 	}
 
-	// 1. work out an actual plan from the spec
-	actualPlan, err := c.NewWGActualPlanFromObj(wgPlanObj)
-	if err != nil {
-		return fmt.Errorf("failed to work out an actual plan from the spec: %s", err.Error())
-	}
+	needReconcile := wgPlanObj.GetGeneration() != wgPlanObj.Status.ObservedGeneration
+	if needReconcile {
+		logger.Info("Need to reconcile", "objectReference", klog.KObj(wgPlanObj), "observedGeneration", wgPlanObj.Status.ObservedGeneration, "generation", wgPlanObj.GetGeneration())
 
-	// 2. query the lister to get depedent WireGuardInterface resources that are controlled by this
-	wgIntfObjs, err := c.wgLister.List(selectorOfThis)
-	if err != nil {
-		if !k8serrors.IsNotFound(err) {
-			return fmt.Errorf("failed to list WireGuardInterface resources: %s", err.Error())
-		}
-		wgIntfObjs = make([]*networkingv1alpha1.WireGuardInterface, 0)
-	}
-
-	// 3. comparing two sets of resources, and generate a resourceSet (that tells us how to reconcile)
-	resourceSet, err := c.comparingResourceSets(actualPlan.Interfaces, wgIntfObjs)
-	if err != nil {
-		return fmt.Errorf("failed to compare resource sets: %s", err.Error())
-	}
-
-	// 4. create or update the WireGuardInterface resources that are needed
-	for _, item := range resourceSet.ShouldBeAdded {
-		wgActualIntfObj := item.(*WGActualPlanInterface)
-		wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name)
-		_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Create(ctx, wgIntfObj, metav1.CreateOptions{})
+		// 1. work out an actual plan from the spec
+		actualPlan, err := c.NewWGActualPlanFromObj(wgPlanObj)
 		if err != nil {
-			return fmt.Errorf("failed to create WireGuardInterface resource: %s", err.Error())
+			return fmt.Errorf("failed to work out an actual plan from the spec: %s", err.Error())
 		}
-	}
 
-	for _, item := range resourceSet.ShouldBeRemoved {
-		wgIntfObj := item.(*networkingv1alpha1.WireGuardInterface)
-		err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Delete(ctx, wgIntfObj.Name, metav1.DeleteOptions{})
+		// 2. query the lister to get depedent WireGuardInterface resources that are controlled by this
+		wgIntfObjs, err := c.wgLister.List(selectorOfThis)
 		if err != nil {
-			return fmt.Errorf("failed to delete WireGuardInterface resource: %s", err.Error())
+			if !k8serrors.IsNotFound(err) {
+				return fmt.Errorf("failed to list WireGuardInterface resources: %s", err.Error())
+			}
+			wgIntfObjs = make([]*networkingv1alpha1.WireGuardInterface, 0)
 		}
-	}
 
-	for _, item := range resourceSet.ShouldBeUpdated {
-		wgActualIntfObj := item.(*WGActualPlanInterface)
-		wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name)
-		_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Update(ctx, wgIntfObj, metav1.UpdateOptions{})
+		// 3. comparing two sets of resources, and generate a resourceSet (that tells us how to reconcile)
+		resourceSet, err := c.comparingResourceSets(actualPlan.Interfaces, wgIntfObjs)
 		if err != nil {
-			return fmt.Errorf("failed to update WireGuardInterface resource: %s", err.Error())
+			return fmt.Errorf("failed to compare resource sets: %s", err.Error())
+		}
+
+		// 4. create or update the WireGuardInterface resources that are needed
+		for _, item := range resourceSet.ShouldBeAdded {
+			wgActualIntfObj := item.(*WGActualPlanInterface)
+			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name)
+			_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Create(ctx, wgIntfObj, metav1.CreateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to create WireGuardInterface resource: %s", err.Error())
+			}
+		}
+
+		for _, item := range resourceSet.ShouldBeRemoved {
+			wgIntfObj := item.(*networkingv1alpha1.WireGuardInterface)
+			err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Delete(ctx, wgIntfObj.Name, metav1.DeleteOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to delete WireGuardInterface resource: %s", err.Error())
+			}
+		}
+
+		for _, item := range resourceSet.ShouldBeUpdated {
+			wgActualIntfObj := item.(*WGActualPlanInterface)
+			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name)
+			_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Update(ctx, wgIntfObj, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to update WireGuardInterface resource: %s", err.Error())
+			}
 		}
 	}
 
+	logger.Info("Updating WireGuardNetworkPlan status", "objectReference", klog.KObj(wgPlanObj))
 	// Update the status with current WireGuard interface information
 	err = c.updateWireGuardNetworkPlanStatus(ctx, wgPlanObj)
 	if err != nil {
@@ -418,7 +421,6 @@ func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgPla
 		if !k8serrors.IsNotFound(err) {
 			return fmt.Errorf("failed to list WireGuardInterface resources: %s", err.Error())
 		}
-		return nil
 	}
 
 	status, err := c.getCurrentWireGuardNetworkPlanStatus(wgIntfObjs)
@@ -429,9 +431,17 @@ func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgPla
 	}
 
 	// Every time the status is updated, track the `generation` field at that moment as well (hence the name "observedGeneration")
-	status.ObservedGeneration = wgPlanObj.GetGeneration()
+	status.ObservedGeneration = wgPlanObjCopy.GetGeneration()
+	logger.V(4).Info("Set ObservedGeneration to", "generation", status.ObservedGeneration)
 
+	// Update the status
 	wgPlanObjCopy.Status = *status
+
+	// Use UpdateStatus to update only the Status block of the WireGuardNetworkPlan resource
+	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardNetworkPlans().UpdateStatus(ctx, wgPlanObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
+	if err != nil {
+		return fmt.Errorf("failed to update status: %s", err.Error())
+	}
 
 	logger.V(4).Info("Updated WireGuardNetworkPlan status", "objectReference", klog.KObj(wgPlanObj))
 	return nil

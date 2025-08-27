@@ -94,11 +94,10 @@ type WireGuardInterfaceSpec struct {
 }
 
 type WireGuardInterfaceAddressSpec struct {
-	Family        InetFamily `json:"family"`
-	Local         string     `json:"local"`
-	Peer          string     `json:"peer"`
-	Prefixlen     int        `json:"prefixlen"`
-	NoPrefixRoute bool       `json:"noPrefixRoute"`
+	Family    InetFamily `json:"family"`
+	Local     string     `json:"local"`
+	Peer      string     `json:"peer"`
+	Prefixlen int        `json:"prefixlen"`
 }
 
 type NetlinkInterfaceAddressStatus struct {

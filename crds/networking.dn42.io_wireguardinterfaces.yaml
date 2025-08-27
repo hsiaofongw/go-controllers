@@ -51,8 +51,6 @@ spec:
                       type: string
                     local:
                       type: string
-                    noPrefixRoute:
-                      type: boolean
                     peer:
                       type: string
                     prefixlen:
@@ -60,7 +58,6 @@ spec:
                   required:
                   - family
                   - local
-                  - noPrefixRoute
                   - peer
                   - prefixlen
                   type: object
