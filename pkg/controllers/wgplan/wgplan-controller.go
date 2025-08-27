@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"time"
 
 	dockerUtil "example.com/go-util/pkg/util/docker"
@@ -63,6 +64,10 @@ const (
 	LabelResourceId     = "networkplan.networking.dn42.io/resource-id"
 	LabelConfigHash     = "networkplan.networking.dn42.io/config-hash"
 	LabelIsControlledBy = "networkplan.networking.dn42.io/is-controlled-by"
+)
+
+const (
+	AnnotationObservedGeneration = "networkplan.networking.dn42.io/parent-observed-generation"
 )
 
 const (
@@ -380,7 +385,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		// 4. create or update the WireGuardInterface resources that are needed
 		for _, item := range resourceSet.ShouldBeAdded {
 			wgActualIntfObj := item.(*WGActualPlanInterface)
-			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name)
+			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name, wgPlanObj.GetGeneration())
 			_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Create(ctx, wgIntfObj, metav1.CreateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to create WireGuardInterface resource: %s", err.Error())
@@ -397,7 +402,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 		for _, item := range resourceSet.ShouldBeUpdated {
 			wgActualIntfObj := item.(*WGActualPlanInterface)
-			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name)
+			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.Name, wgPlanObj.GetGeneration())
 			_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Update(ctx, wgIntfObj, metav1.UpdateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to update WireGuardInterface resource: %s", err.Error())
@@ -432,16 +437,12 @@ func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgPla
 		}
 	}
 
-	status, err := c.getCurrentWireGuardNetworkPlanStatus(wgIntfObjs)
+	status, err := c.getCurrentWireGuardNetworkPlanStatus(ctx, wgIntfObjs)
 	if err != nil {
 		logger.Error(err, "Failed to get current WireGuardNetworkPlan status", "objectReference", klog.KObj(wgPlanObj))
 		// Don't fail the entire sync if status update fails
 		return nil
 	}
-
-	// Every time the status is updated, track the `generation` field at that moment as well (hence the name "observedGeneration")
-	status.ObservedGeneration = wgPlanObjCopy.GetGeneration()
-	logger.V(4).Info("Set ObservedGeneration to", "generation", status.ObservedGeneration)
 
 	// Update the status
 	wgPlanObjCopy.Status = *status
@@ -456,10 +457,24 @@ func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgPla
 	return nil
 }
 
-func (c *Controller) getCurrentWireGuardNetworkPlanStatus(wgIntfObjs []*networkingv1alpha1.WireGuardInterface) (*networkingv1alpha1.WireGuardNetworkPlanStatus, error) {
+func (c *Controller) getCurrentWireGuardNetworkPlanStatus(ctx context.Context, wgIntfObjs []*networkingv1alpha1.WireGuardInterface) (*networkingv1alpha1.WireGuardNetworkPlanStatus, error) {
+	logger := klog.FromContext(ctx)
+
 	status := new(networkingv1alpha1.WireGuardNetworkPlanStatus)
 
+	generations := make([]int64, 0)
+
 	for _, wgIntfObj := range wgIntfObjs {
+
+		annotations := wgIntfObj.GetAnnotations()
+		if annotations != nil {
+			if genstr, ok := annotations[AnnotationObservedGeneration]; ok {
+				if gen, err := strconv.ParseInt(genstr, 10, 64); err == nil {
+					generations = append(generations, gen)
+				}
+			}
+		}
+
 		intfStatus := networkingv1alpha1.WireGuardNetworkPlanInterfaceStatus{
 			WGObjectRef: wgIntfObj.Name,
 			NodeName:    wgIntfObj.Status.Nodename,
@@ -497,6 +512,17 @@ func (c *Controller) getCurrentWireGuardNetworkPlanStatus(wgIntfObjs []*networki
 		}
 
 		status.Interfaces = append(status.Interfaces, intfStatus)
+	}
+
+	if len(generations) > 0 {
+		minGen := generations[0]
+		for _, gen := range generations {
+			if gen < minGen {
+				minGen = gen
+			}
+		}
+		status.ObservedGeneration = minGen
+		logger.Info("Set ObservedGeneration to", "generation", status.ObservedGeneration)
 	}
 
 	return status, nil
@@ -668,7 +694,7 @@ func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
 	return nil
 }
 
-func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject(wgPlanName string) *networkingv1alpha1.WireGuardInterface {
+func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject(wgPlanName string, wgPlanGeneration int64) *networkingv1alpha1.WireGuardInterface {
 	if wgaIntf.ResourceId == "" {
 		// to remind the developer that the resourceId must be generated before calling this function.
 		panic("ResourceId is empty")
@@ -698,6 +724,9 @@ func (wgaIntf *WGActualPlanInterface) ToWireGuardInterfaceObject(wgPlanName stri
 				LabelResourceId:     wgaIntf.ResourceId, // by comparing the resourceId, we can know which resources need to be created or deleted.
 				LabelConfigHash:     wgaIntf.ConfigHash, // by comparing the configHash against that in the computed value, we can decide whether this resource is needed to be updated.
 				LabelIsControlledBy: wgPlanName,         // use this label to facilitate the selection of dependent resources.
+			},
+			Annotations: map[string]string{
+				AnnotationObservedGeneration: fmt.Sprintf("%d", wgPlanGeneration),
 			},
 			Finalizers: []string{
 				"networkplan.networking.dn42.io/finalizer",
