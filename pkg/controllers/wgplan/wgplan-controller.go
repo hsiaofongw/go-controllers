@@ -149,34 +149,41 @@ func NewController(
 
 	logger.Info("Setting up event handlers")
 
+	type revChangeLog struct {
+		Generation         string `json:"generation"`
+		ResourceVersion    string `json:"resourceVersion"`
+		ObservedGeneration string `json:"observedGeneration"`
+	}
+
 	// Set up event handler for when WireGuardNetworkPlan resources change
 	config.WgPlanInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			objMeta, _ := obj.(metav1.Object)
-			logger.Info("AddFunc for WireGuardNetworkPlan resource is called", "objectReference", klog.KObj(objMeta))
-			controller.enqueueWG(obj)
+			objWgPlan, _ := obj.(*networkingv1alpha1.WireGuardNetworkPlan)
+			revLog := revChangeLog{
+				Generation:         fmt.Sprintf("%d", objWgPlan.GetGeneration()),
+				ResourceVersion:    objWgPlan.GetResourceVersion(),
+				ObservedGeneration: fmt.Sprintf("%d", objWgPlan.Status.ObservedGeneration),
+			}
+			revLogJSON, _ := json.Marshal(revLog)
+			logger.Info("AddFunc for WireGuardNetworkPlan resource is called", "objectReference", klog.KObj(objWgPlan), "Revision log", string(revLogJSON))
+			controller.enqueueWG(objWgPlan)
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldWG := old.(*networkingv1alpha1.WireGuardNetworkPlan)
 			newWG := new.(*networkingv1alpha1.WireGuardNetworkPlan)
-
-			logger.Info("UpdateFunc for WireGuardNetworkPlan resource is called", "objectReference", klog.KObj(newWG))
 
 			revisionChanged := newWG.GetResourceVersion() != oldWG.GetResourceVersion()
 			if revisionChanged {
 				logger.Info("Revision changed", "old", oldWG.ResourceVersion, "new", newWG.ResourceVersion, "objectReference", klog.KObj(newWG))
 			}
 
-			generationChanged := newWG.GetGeneration() != oldWG.GetGeneration()
-			if generationChanged {
-				logger.Info("Generation changed", "old", oldWG.GetGeneration(), "new", newWG.GetGeneration(), "objectReference", klog.KObj(newWG))
+			changelog := revChangeLog{
+				Generation:         fmt.Sprintf("%d -> %d", oldWG.GetGeneration(), newWG.GetGeneration()),
+				ResourceVersion:    fmt.Sprintf("%s -> %s", oldWG.GetResourceVersion(), newWG.GetResourceVersion()),
+				ObservedGeneration: fmt.Sprintf("%d -> %d", oldWG.Status.ObservedGeneration, newWG.GetGeneration()),
 			}
-
-			generationLagged := oldWG.Status.ObservedGeneration != newWG.GetGeneration()
-			if generationLagged {
-				// this is probably due to the controller went offline while the api-server is sending updates.
-				logger.Info("Generation lagged", "observedGeneration", oldWG.Status.ObservedGeneration, "new", newWG.GetGeneration(), "objectReference", klog.KObj(newWG))
-			}
+			changelogJSON, _ := json.Marshal(changelog)
+			logger.Info("UpdateFunc for WireGuardNetworkPlan resource is called", "objectReference", klog.KObj(newWG), "Revision change log", string(changelogJSON))
 
 			if !revisionChanged {
 				logger.Info("Updating WireGuardNetworkPlan due to force resync, and resourceVersion is not changed", "objectReference", klog.KObj(newWG))

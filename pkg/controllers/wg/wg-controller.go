@@ -19,6 +19,7 @@ package wg
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -151,12 +152,27 @@ func NewController(
 
 	logger.Info("Setting up event handlers")
 
+	type revChangeLog struct {
+		Generation         string `json:"generation"`
+		ResourceVersion    string `json:"resourceVersion"`
+		ObservedGeneration string `json:"observedGeneration"`
+	}
+
 	// Set up an event handler for when WireGuardInterface resources change
 	config.WgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			objMeta, _ := obj.(metav1.Object)
-			logger.Info("AddFunc for WireGuardInterface resource is called", "objectReference", klog.KObj(objMeta))
-			controller.enqueueWG(obj)
+			objWg, _ := obj.(*networkingv1alpha1.WireGuardInterface)
+
+			revLog := revChangeLog{
+				Generation:         fmt.Sprintf("%d", objWg.GetGeneration()),
+				ResourceVersion:    objWg.GetResourceVersion(),
+				ObservedGeneration: fmt.Sprintf("%d", objWg.Status.ObservedGeneration),
+			}
+
+			revLogJSON, _ := json.Marshal(revLog)
+			logger.Info("AddFunc for WireGuardInterface resource is called", "objectReference", klog.KObj(objWg), "Revision log", string(revLogJSON))
+
+			controller.enqueueWG(objWg)
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldWG := old.(*networkingv1alpha1.WireGuardInterface)
@@ -169,16 +185,13 @@ func NewController(
 				logger.Info("Revision changed", "old", oldWG.ResourceVersion, "new", newWG.ResourceVersion, "objectReference", klog.KObj(newWG))
 			}
 
-			generationChanged := newWG.GetGeneration() != oldWG.GetGeneration()
-			if generationChanged {
-				logger.Info("Generation changed", "old", oldWG.GetGeneration(), "new", newWG.GetGeneration(), "objectReference", klog.KObj(newWG))
+			changelog := revChangeLog{
+				Generation:         fmt.Sprintf("%d -> %d", oldWG.GetGeneration(), newWG.GetGeneration()),
+				ResourceVersion:    fmt.Sprintf("%s -> %s", oldWG.GetResourceVersion(), newWG.GetResourceVersion()),
+				ObservedGeneration: fmt.Sprintf("%d -> %d", oldWG.Status.ObservedGeneration, newWG.GetGeneration()),
 			}
-
-			generationLagged := oldWG.Status.ObservedGeneration != newWG.GetGeneration()
-			if generationLagged {
-				// this is probably due to the controller went offline while the api-server is sending updates.
-				logger.Info("Generation lagged", "observedGeneration", oldWG.Status.ObservedGeneration, "new", newWG.GetGeneration(), "objectReference", klog.KObj(newWG))
-			}
+			changelogJSON, _ := json.Marshal(changelog)
+			logger.Info("Revision change log", string(changelogJSON))
 
 			if !revisionChanged {
 				logger.Info("Updating WireGuardInterface due to force resync", "objectReference", klog.KObj(newWG))
