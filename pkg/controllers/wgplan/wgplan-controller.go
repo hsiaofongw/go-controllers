@@ -153,12 +153,14 @@ func NewController(
 	config.WgPlanInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			objMeta, _ := obj.(metav1.Object)
-			logger.Info("Updating WireGuardNetworkPlan due to creation", "objectReference", klog.KObj(objMeta))
+			logger.Info("AddFunc for WireGuardNetworkPlan resource is called", "objectReference", klog.KObj(objMeta))
 			controller.enqueueWG(obj)
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldWG := old.(*networkingv1alpha1.WireGuardNetworkPlan)
 			newWG := new.(*networkingv1alpha1.WireGuardNetworkPlan)
+
+			logger.Info("UpdateFunc for WireGuardNetworkPlan resource is called", "objectReference", klog.KObj(newWG))
 
 			revisionChanged := newWG.GetResourceVersion() != oldWG.GetResourceVersion()
 			if revisionChanged {
@@ -185,7 +187,7 @@ func NewController(
 				return
 			}
 
-			logger.Info("Updating WireGuardNetworkPlan due to both resourceVersion and generation are changed", "objectReference", klog.KObj(newWG))
+			logger.Info("Updating WireGuardNetworkPlan due to resourceVersion is changed", "objectReference", klog.KObj(newWG))
 			controller.enqueueWG(new)
 		},
 	})
@@ -400,7 +402,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	// Update the status with current WireGuard interface information
 	err = c.updateWireGuardNetworkPlanStatus(ctx, wgPlanObj)
 	if err != nil {
-		return fmt.Errorf("failed to update WireGuard interface status: %s", err.Error())
+		return fmt.Errorf("failed to update WireGuardNetworkPlan status: %s", err.Error())
 	}
 
 	return nil

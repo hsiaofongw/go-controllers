@@ -155,12 +155,14 @@ func NewController(
 	config.WgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			objMeta, _ := obj.(metav1.Object)
-			logger.Info("Updating WireGuardInterface due to creation", "objectReference", klog.KObj(objMeta))
+			logger.Info("AddFunc for WireGuardInterface resource is called", "objectReference", klog.KObj(objMeta))
 			controller.enqueueWG(obj)
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldWG := old.(*networkingv1alpha1.WireGuardInterface)
 			newWG := new.(*networkingv1alpha1.WireGuardInterface)
+
+			logger.Info("UpdateFunc for WireGuardInterface resource is called", "objectReference", klog.KObj(newWG))
 
 			revisionChanged := newWG.ResourceVersion != oldWG.ResourceVersion
 			if revisionChanged {
@@ -178,20 +180,17 @@ func NewController(
 				logger.Info("Generation lagged", "observedGeneration", oldWG.Status.ObservedGeneration, "new", newWG.GetGeneration(), "objectReference", klog.KObj(newWG))
 			}
 
-			if revisionChanged || generationChanged || generationLagged {
-				logger.Info("Updating WireGuardInterface due to both resourceVersion and generation are changed", "objectReference", klog.KObj(newWG))
-				controller.enqueueWG(new)
-			} else if newWG.GetDeletionTimestamp() != nil {
-				logger.Info("Updating WireGuardInterface due to deletion", "objectReference", klog.KObj(newWG))
-				controller.enqueueWG(new)
-			} else {
+			if !revisionChanged {
 				logger.Info("Updating WireGuardInterface due to force resync", "objectReference", klog.KObj(newWG))
 				if err := controller.updateWireGuardInterfaceStatus(context.Background(), newWG); err != nil {
 					logger.Error(err, "Failed to update WireGuardInterface status", "objectReference", newWG.Name, "object is enqueued, and will retry later")
-					// if failed to update status, enqueue the object for a later retry, otherwise we'll have to wait for the next resync.
-					controller.enqueueWG(new)
+					// if failed to update status, simply give up rather than retry, because there's still next force-resync
 				}
+				return
 			}
+
+			logger.Info("Updating WireGuardInterface due to resourceVersion is changed", "objectReference", klog.KObj(newWG))
+			controller.enqueueWG(new)
 		},
 	})
 
@@ -359,60 +358,83 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return nil
 	}
 
-	privkeyStr := wgObj.Spec.PrivateKey
-	if privkeyStr == "" {
-		privkeyNS := "default"
-		if wgObj.Spec.PrivateKeySecretRef.Namespace != nil {
-			privkeyNS = *wgObj.Spec.PrivateKeySecretRef.Namespace
+	needReconcile := wgObj.GetGeneration() != wgObj.Status.ObservedGeneration
+	if needReconcile {
+		logger.Info("Need to reconcile", "objectReference", klog.KObj(wgObj), "observedGeneration", wgObj.Status.ObservedGeneration, "generation", wgObj.GetGeneration())
+
+		privkeyStr := wgObj.Spec.PrivateKey
+		if privkeyStr == "" {
+			privkeyNS := "default"
+			if wgObj.Spec.PrivateKeySecretRef.Namespace != nil {
+				privkeyNS = *wgObj.Spec.PrivateKeySecretRef.Namespace
+			}
+
+			privKey, err := c.getSecretValue(privkeyNS, wgObj.Spec.PrivateKeySecretRef.Name, wgObj.Spec.PrivateKeySecretRef.Key)
+			if err != nil {
+				return fmt.Errorf("failed to get private key: %s", err.Error())
+			}
+
+			privkeyStr = string(privKey)
 		}
 
-		privKey, err := c.getSecretValue(privkeyNS, wgObj.Spec.PrivateKeySecretRef.Name, wgObj.Spec.PrivateKeySecretRef.Key)
-		if err != nil {
-			return fmt.Errorf("failed to get private key: %s", err.Error())
-		}
+		ipconfigurator := func(handle *netlink.Handle, wgLink netlink.Link) error {
+			addrObjs := make([]*netlink.Addr, 0)
 
-		privkeyStr = string(privKey)
-	}
+			if err := handle.LinkSetUp(wgLink); err != nil {
+				return fmt.Errorf("failed to set link %s up: %s", wgLink.Attrs().Name, err.Error())
+			}
 
-	ipconfigurator := func(handle *netlink.Handle, wgLink netlink.Link) error {
-		addrObjs := make([]*netlink.Addr, 0)
-
-		if err := handle.LinkSetUp(wgLink); err != nil {
-			return fmt.Errorf("failed to set link %s up: %s", wgLink.Attrs().Name, err.Error())
-		}
-
-		// 1. set addresses
-		// 2. set mtu
-		if wgObj.Spec.Addresses != nil {
-			for _, addrSpec := range wgObj.Spec.Addresses {
-				addrObj, err := addrSpec.MakeNetlinkAddrObject()
-				if err != nil {
-					return fmt.Errorf("failed to make netlink addr object: %s", err.Error())
+			// 1. set addresses
+			// 2. set mtu
+			if wgObj.Spec.Addresses != nil {
+				for _, addrSpec := range wgObj.Spec.Addresses {
+					addrObj, err := addrSpec.MakeNetlinkAddrObject()
+					if err != nil {
+						return fmt.Errorf("failed to make netlink addr object: %s", err.Error())
+					}
+					addrObjs = append(addrObjs, addrObj)
 				}
-				addrObjs = append(addrObjs, addrObj)
-			}
-		}
-
-		if wgObj.Spec.MTU != nil {
-			// default wg (over the Ethernet) mtu is 1420
-			mtu := 1420
-
-			specMTU := wgObj.Spec.MTU
-			if *specMTU != 0 {
-				mtu = *specMTU
 			}
 
-			if err := handle.LinkSetMTU(wgLink, mtu); err != nil {
-				return fmt.Errorf("failed to set mtu: %s", err.Error())
+			if wgObj.Spec.MTU != nil {
+				// default wg (over the Ethernet) mtu is 1420
+				mtu := 1420
+
+				specMTU := wgObj.Spec.MTU
+				if *specMTU != 0 {
+					mtu = *specMTU
+				}
+
+				if err := handle.LinkSetMTU(wgLink, mtu); err != nil {
+					return fmt.Errorf("failed to set mtu: %s", err.Error())
+				}
 			}
-		}
 
-		currentAddrs, err := handle.AddrList(wgLink, netlink.FAMILY_ALL)
-		if err != nil {
-			return fmt.Errorf("failed to get current addresses: %s", err.Error())
-		}
+			currentAddrs, err := handle.AddrList(wgLink, netlink.FAMILY_ALL)
+			if err != nil {
+				return fmt.Errorf("failed to get current addresses: %s", err.Error())
+			}
 
-		if len(currentAddrs) == 0 {
+			if len(currentAddrs) == 0 {
+				for _, addrObj := range addrObjs {
+					if err := handle.AddrAdd(wgLink, addrObj); err != nil {
+						return fmt.Errorf("failed to add address: %s", err.Error())
+					}
+				}
+
+				return nil
+			}
+
+			// if there is already address that is configured, will do reconcilliation
+			// 1. delete all current addresses
+			// 2. add all new addresses
+
+			for _, currAddr := range currentAddrs {
+				if err := handle.AddrDel(wgLink, &currAddr); err != nil {
+					return fmt.Errorf("failed to delete address: %s", err.Error())
+				}
+			}
+
 			for _, addrObj := range addrObjs {
 				if err := handle.AddrAdd(wgLink, addrObj); err != nil {
 					return fmt.Errorf("failed to add address: %s", err.Error())
@@ -422,94 +444,75 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 			return nil
 		}
 
-		// if there is already address that is configured, will do reconcilliation
-		// 1. delete all current addresses
-		// 2. add all new addresses
-
-		for _, currAddr := range currentAddrs {
-			if err := handle.AddrDel(wgLink, &currAddr); err != nil {
-				return fmt.Errorf("failed to delete address: %s", err.Error())
-			}
-		}
-
-		for _, addrObj := range addrObjs {
-			if err := handle.AddrAdd(wgLink, addrObj); err != nil {
-				return fmt.Errorf("failed to add address: %s", err.Error())
-			}
-		}
-
-		return nil
-	}
-
-	wgconfigurator := func(wgCtrlCli *wgctrl.Client, reconcile bool) error {
-		wgConf, err := wgObj.Spec.ToZX2c4WGConf(&privkeyStr)
-		if err != nil {
-			return fmt.Errorf("failed to convert WireGuardInterface to config: %s", err.Error())
-		}
-
-		for peerIdx, peer := range wgObj.Spec.Peers {
-			var presharedKey *string = nil
-
-			if peer.PresharedKeySecretRef != nil {
-				pskSecret := peer.PresharedKeySecretRef
-				pskNs := "default"
-				if pskSecret.Namespace != nil && *pskSecret.Namespace != "" {
-					pskNs = *pskSecret.Namespace
-				}
-
-				psk, err := c.getSecretValue(pskNs, pskSecret.Name, pskSecret.Key)
-				if err != nil {
-					return fmt.Errorf("failed to get preshared key: %s, peerIdx: %d, peer publicKey: %s", err.Error(), peerIdx, peer.PublicKey)
-				}
-				pskStr := base64.StdEncoding.EncodeToString(psk)
-				presharedKey = &pskStr
-			}
-
-			wgPeerConf, err := peer.ToZX2c4WGPeerConf(presharedKey)
+		wgconfigurator := func(wgCtrlCli *wgctrl.Client, reconcile bool) error {
+			wgConf, err := wgObj.Spec.ToZX2c4WGConf(&privkeyStr)
 			if err != nil {
-				return fmt.Errorf("failed to convert wgi peer spec to zx2c4 wg peer conf: %s, peerIdx: %d", err.Error(), peerIdx)
+				return fmt.Errorf("failed to convert WireGuardInterface to config: %s", err.Error())
 			}
 
-			wgConf.Peers = append(wgConf.Peers, *wgPeerConf)
-		}
+			for peerIdx, peer := range wgObj.Spec.Peers {
+				var presharedKey *string = nil
 
-		if reconcile {
-			wgConf.ReplacePeers = true
-			if wgConf.Peers != nil {
-				for peeridx := range wgConf.Peers {
-					wgConf.Peers[peeridx].ReplaceAllowedIPs = true
+				if peer.PresharedKeySecretRef != nil {
+					pskSecret := peer.PresharedKeySecretRef
+					pskNs := "default"
+					if pskSecret.Namespace != nil && *pskSecret.Namespace != "" {
+						pskNs = *pskSecret.Namespace
+					}
+
+					psk, err := c.getSecretValue(pskNs, pskSecret.Name, pskSecret.Key)
+					if err != nil {
+						return fmt.Errorf("failed to get preshared key: %s, peerIdx: %d, peer publicKey: %s", err.Error(), peerIdx, peer.PublicKey)
+					}
+					pskStr := base64.StdEncoding.EncodeToString(psk)
+					presharedKey = &pskStr
+				}
+
+				wgPeerConf, err := peer.ToZX2c4WGPeerConf(presharedKey)
+				if err != nil {
+					return fmt.Errorf("failed to convert wgi peer spec to zx2c4 wg peer conf: %s, peerIdx: %d", err.Error(), peerIdx)
+				}
+
+				wgConf.Peers = append(wgConf.Peers, *wgPeerConf)
+			}
+
+			if reconcile {
+				wgConf.ReplacePeers = true
+				if wgConf.Peers != nil {
+					for peeridx := range wgConf.Peers {
+						wgConf.Peers[peeridx].ReplaceAllowedIPs = true
+					}
 				}
 			}
+
+			return wgCtrlCli.ConfigureDevice(wgObj.Spec.InterfaceName, *wgConf)
 		}
 
-		return wgCtrlCli.ConfigureDevice(wgObj.Spec.InterfaceName, *wgConf)
-	}
-
-	logger.V(4).Info("container pid", pid)
-
-	err = c.getCurrentWGInterface(wgObj.Spec.InterfaceName, pid, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
-		return wgconfigurator(wgCtrlCli, true)
-	})
-
-	if err != nil {
-
-		_, ok := err.(netlink.LinkNotFoundError)
-		if !ok {
-			return fmt.Errorf("failed to get current WireGuard interface: %s", err.Error())
-		}
-
-		err = c.createNewWGInterface(wgObj, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
-			return wgconfigurator(wgCtrlCli, false)
+		err = c.getCurrentWGInterface(wgObj.Spec.InterfaceName, pid, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
+			return wgconfigurator(wgCtrlCli, true)
 		})
+
 		if err != nil {
-			return fmt.Errorf("failed to create new WireGuard interface: %s", err.Error())
+
+			_, ok := err.(netlink.LinkNotFoundError)
+			if !ok {
+				return fmt.Errorf("failed to get current WireGuard interface: %s", err.Error())
+			}
+
+			err = c.createNewWGInterface(wgObj, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
+				return wgconfigurator(wgCtrlCli, false)
+			})
+			if err != nil {
+				return fmt.Errorf("failed to create new WireGuard interface: %s", err.Error())
+			}
 		}
 	}
 
+	logger.Info("Updating WireGuardInterface status", "objectReference", klog.KObj(wgObj))
 	// Update the status with current WireGuard interface information
 	err = c.updateWireGuardInterfaceStatus(ctx, wgObj)
 	if err != nil {
-		return fmt.Errorf("failed to update WireGuard interface status: %s", err.Error())
+		return fmt.Errorf("failed to update WireGuardInterface status: %s", err.Error())
 	}
 
 	return nil
