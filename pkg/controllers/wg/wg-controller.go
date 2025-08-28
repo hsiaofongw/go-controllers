@@ -371,11 +371,20 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	if deletionTime != nil {
 		// Clean up underlying resources, then
 		// clear all finalizers from the object
-		err := c.tryDeleteInterfaceIfExists(wgObj.Spec.InterfaceName, pid)
-		if err != nil {
-			if _, ok := err.(netlink.LinkNotFoundError); !ok {
-				return fmt.Errorf("failed to delete interface: %s", err.Error())
+		err := withNetlinkHandle(pid, func(handle *netlink.Handle) error {
+			link, err := handle.LinkByName(wgObj.Spec.InterfaceName)
+			if err != nil {
+				if _, ok := err.(netlink.LinkNotFoundError); !ok {
+					return fmt.Errorf("failed to get link by name: %s", err.Error())
+				}
+
+				return nil
 			}
+
+			return handle.LinkDel(link)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete interface: %s", err.Error())
 		}
 
 		wgObjCopy := wgObj.DeepCopy()
@@ -515,37 +524,98 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 			}
 		} else {
 			// pid != nil means that the interface should reside in the container's netns.
-			if wgObj.Spec.MoveToContainer {
-				// MoveToContainer is true means that the interface should be created at host netns first, then move to container's netns.
-				// This is how we gonna reconcile it:
-				// 1. If the interface with the same name already exists in the host netns, delete it.
-				// 2. Create the interface in the host netns, configure/reconcile it with desired **WireGuard** configuration.
-				// 3. Move it into the container's netns, configure/reconcile it with the desired **IP** configuration.
-			} else {
-				// MoveToContainer is false means that the interface should be created directly in the container's netns.
-				// This is how we gonna reconcile it:
-				// 1. If the interface is not exist in the container's netns, create it.
-				// 2. Configure/reconcile it with the desired **WireGuard** configuration.
-				// 3. Configure/reconcile it with the desired **IP** configuration.
+
+			// Delete any interface with the same name in the host netns to simplify the upcoming processing.
+			withNetlinkHandle(nil, func(handle *netlink.Handle) error {
+				link, err := handle.LinkByName(wgObj.Spec.InterfaceName)
+				if err != nil {
+					if _, ok := err.(netlink.LinkNotFoundError); !ok {
+						return fmt.Errorf("failed to get link by name: %s", err.Error())
+					}
+
+					if err := handle.LinkDel(link); err != nil {
+						return fmt.Errorf("failed to delete link: %s", err.Error())
+					}
+				}
+
+				return nil
+			})
+
+			// Check if the interface is already in the container's netns.
+			err := withNetlinkHandle(pid, func(handle *netlink.Handle) error {
+				_, err := handle.LinkByName(wgObj.Spec.InterfaceName)
+				return err
+			})
+
+			// If in container's netns, the interface is not found, first create it in the host netns.
+			// Then, depending on if the `MoveToContainer` is set to true, move the interface to the container's netns after configured its wg parameters.
+			if err != nil {
+				if _, ok := err.(netlink.LinkNotFoundError); !ok {
+					return fmt.Errorf("failed to get link by name: %s", err.Error())
+				}
+
+				err := withNetlinkHandle(nil, func(handle *netlink.Handle) error {
+					wgLink := new(netlink.Wireguard)
+					wgLink.Attrs().Name = wgObj.Spec.InterfaceName
+					if err := handle.LinkAdd(wgLink); err != nil {
+						return fmt.Errorf("failed to add link: %s", err.Error())
+					}
+
+					if err := handle.LinkSetUp(wgLink); err != nil {
+						return fmt.Errorf("failed to set link up: %s", err.Error())
+					}
+
+					wgCtrlCli, err := wgctrl.New()
+					if err != nil {
+						return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
+					}
+					defer wgCtrlCli.Close()
+
+					if err := wgconfigurator(wgCtrlCli); err != nil {
+						return fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
+					}
+
+					if wgObj.Spec.MoveToContainer {
+						if err := handle.LinkSetNsPid(wgLink, *pid); err != nil {
+							return fmt.Errorf("failed to move link to ns: %s", err.Error())
+						}
+					}
+
+					return nil
+				})
+
+				if err != nil {
+					return err
+				}
 			}
-		}
 
-		err = c.getCurrentWGInterface(wgObj.Spec.InterfaceName, pid, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
-			return wgconfigurator(wgCtrlCli)
-		})
+			err = withNetns(pid, func() error {
+				wgCtrlCli, err := wgctrl.New()
+				if err != nil {
+					return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
+				}
+				defer wgCtrlCli.Close()
 
-		if err != nil {
-
-			_, ok := err.(netlink.LinkNotFoundError)
-			if !ok {
-				return fmt.Errorf("failed to get current WireGuard interface: %s", err.Error())
-			}
-
-			err = c.createNewWGInterface(wgObj, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
 				return wgconfigurator(wgCtrlCli)
 			})
 			if err != nil {
-				return fmt.Errorf("failed to create new WireGuard interface: %s", err.Error())
+				return fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
+			}
+
+			err = withNetlinkHandle(pid, func(handle *netlink.Handle) error {
+				link, err := handle.LinkByName(wgObj.Spec.InterfaceName)
+				if err != nil {
+					return fmt.Errorf("failed to get link by name: %s", err.Error())
+				}
+
+				if err := ipconfigurator(handle, link); err != nil {
+					return fmt.Errorf("failed to configure/reconcile ip: %s", err.Error())
+				}
+
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("failed to configure/reconcile ip: %s", err.Error())
 			}
 		}
 	}
@@ -663,8 +733,29 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 		return nil
 	}
 
-	if err := c.getCurrentWGInterface(interfaceName, containerPid, netlinkHook, wgHook); err != nil {
-		return nil, fmt.Errorf("failed to get current WireGuard interface: %s", err.Error())
+	err = withNetns(containerPid, func() error {
+		wgCtrlCli, err := wgctrl.New()
+		if err != nil {
+			return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
+		}
+		defer wgCtrlCli.Close()
+
+		return wgHook(wgCtrlCli)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
+	}
+
+	err = withNetlinkHandle(containerPid, func(handle *netlink.Handle) error {
+		link, err := handle.LinkByName(interfaceName)
+		if err != nil {
+			return fmt.Errorf("failed to get link by name: %s", err.Error())
+		}
+
+		return netlinkHook(handle, link)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure/reconcile ip: %s", err.Error())
 	}
 
 	return status, nil
@@ -695,64 +786,6 @@ func (c *Controller) getDockerContainerPid(containerName string) (int, error) {
 	}
 
 	return p, nil
-}
-
-// return a non-nil error only if the error is non-recoverable.
-// if the interface doesn't exist at the moment, it does nothing and silently returns nil.
-func (c *Controller) tryDeleteInterfaceIfExists(interfaceName string, pid *int) error {
-	return c.getCurrentWGInterface(interfaceName, pid, func(handle *netlink.Handle, wgLink netlink.Link) error {
-		link, err := handle.LinkByName(interfaceName)
-		if err != nil {
-			if _, ok := err.(netlink.LinkNotFoundError); ok {
-				return err
-			}
-
-			return fmt.Errorf("failed to get link for deletion: %s", err.Error())
-		}
-
-		if err := handle.LinkDel(link); err != nil {
-			if _, ok := err.(netlink.LinkNotFoundError); ok {
-				return err
-			}
-
-			return fmt.Errorf("failed to delete link: %s", err.Error())
-		}
-
-		return nil
-	}, nil)
-}
-
-// find then configure the existing WireGuard interface
-func (c *Controller) getCurrentWGInterface(interfaceName string, pid *int, ipconfigurator func(handle *netlink.Handle, wgLink netlink.Link) error, wgconfigurator func(wgCtrlCli *wgctrl.Client) error) error {
-	return withNetlinkHandle(pid, func(handle *netlink.Handle) error {
-		link, err := handle.LinkByName(interfaceName)
-		if err != nil {
-			return err
-		}
-		if ipconfigurator != nil {
-			if err := ipconfigurator(handle, link); err != nil {
-				return fmt.Errorf("failed at netlink hook: %s", err.Error())
-			}
-		}
-
-		if wgconfigurator != nil {
-			return withNetns(pid, func() error {
-				wgCtrlCli, err := wgctrl.New()
-				if err != nil {
-					return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
-				}
-				defer wgCtrlCli.Close()
-
-				if err := wgconfigurator(wgCtrlCli); err != nil {
-					return fmt.Errorf("failed at wgctrl client hook: %s", err.Error())
-				}
-				return nil
-			})
-
-		}
-
-		return nil
-	})
 }
 
 func withNetlinkHandle(pid *int, hook func(handle *netlink.Handle) error) error {
@@ -802,54 +835,6 @@ func withNetns(containerPid *int, hook func() error) error {
 	}
 
 	return hook()
-}
-
-// create then configure the new WireGuard interface
-func (c *Controller) createNewWGInterface(
-	wgObj *networkingv1alpha1.WireGuardInterface,
-	ipconfigurator func(handle *netlink.Handle, wgLink netlink.Link) error,
-	wgconfigurator func(wgCtrlCli *wgctrl.Client) error,
-) error {
-	pid, err := c.getInterfacePid(&wgObj.Spec)
-	if err != nil {
-		return fmt.Errorf("failed to get interface pid: %s", err.Error())
-	}
-
-	wgLink := new(netlink.Wireguard)
-	wgLink.Attrs().Name = wgObj.Spec.InterfaceName
-
-	err = withNetlinkHandle(nil, func(handle *netlink.Handle) error {
-		if err := handle.LinkAdd(wgLink); err != nil {
-			return fmt.Errorf("failed to add link: %s", err.Error())
-		}
-
-		wgCtrlCli, err := wgctrl.New()
-		if err != nil {
-			return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
-		}
-		defer wgCtrlCli.Close()
-
-		if err := wgconfigurator(wgCtrlCli); err != nil {
-			return fmt.Errorf("failed to configure wgctrl client: %s", err.Error())
-		}
-
-		if err := handle.LinkSetNsPid(wgLink, *pid); err != nil {
-			return fmt.Errorf("failed to move link to ns: %s", err.Error())
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	err = c.getCurrentWGInterface(wgObj.Spec.InterfaceName, pid, ipconfigurator, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create and configure WireGuard interface: %s", err.Error())
-	}
-
-	return nil
 }
 
 func (c *Controller) getThisHostname() (string, error) {
