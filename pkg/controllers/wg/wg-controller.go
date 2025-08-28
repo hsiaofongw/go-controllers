@@ -23,8 +23,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"os"
+	"sort"
 	"time"
 
 	dockerUtil "example.com/go-util/pkg/util/docker"
@@ -465,16 +467,40 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 				return fmt.Errorf("failed to convert WireGuardInterface to config: %s", err.Error())
 			}
 
-			// todo: reconcile (compare the Config and Device Status)
+			device, err := wgCtrlCli.Device(wgObj.Spec.InterfaceName)
+			if err != nil {
+				return fmt.Errorf("failed to get device: %s", err.Error())
+			}
 
-			wgConf.ReplacePeers = true
-			if wgConf.Peers != nil {
-				for peeridx := range wgConf.Peers {
-					wgConf.Peers[peeridx].ReplaceAllowedIPs = true
+			isDiff := false
+
+			// part 1. compare outer wg config
+			if wgConf.ListenPort != nil {
+				if *wgConf.ListenPort != device.ListenPort {
+					isDiff = true
 				}
 			}
 
-			return wgCtrlCli.ConfigureDevice(wgObj.Spec.InterfaceName, *wgConf)
+			if wgConf.PrivateKey == nil {
+				return fmt.Errorf("private key is empty")
+			}
+
+			if wgConf.PrivateKey.PublicKey().String() != device.PublicKey.String() {
+				isDiff = true
+			}
+
+			// part 2. compare against each peer
+			if len(wgConf.Peers) != len(device.Peers) {
+				isDiff = true
+			} else {
+				isDiff = checkPeersDiff(wgConf.Peers, device.Peers)
+			}
+
+			if isDiff {
+				return wgCtrlCli.ConfigureDevice(wgObj.Spec.InterfaceName, *wgConf)
+			}
+
+			return nil
 		}
 
 		if pid == nil {
@@ -912,11 +938,12 @@ func (c *Controller) ToWireGuardConf(wgi *networkingv1alpha1.WireGuardInterfaceS
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert peer spec to wg peer conf: %s", err.Error())
 		}
-
+		peerConf.ReplaceAllowedIPs = true
 		peerConfigs = append(peerConfigs, *peerConf)
 	}
 
 	wgConf.Peers = peerConfigs
+	wgConf.ReplacePeers = true
 	return wgConf, nil
 }
 
@@ -1087,4 +1114,91 @@ func compareNetlinkAddrs(desiredAddrs []*netlink.Addr, currentAddrs []netlink.Ad
 	result.ShouldBeRemoved = staleSet
 
 	return result, nil
+}
+
+func getKeyStr(key *wgtypes.Key) string {
+	if key == nil {
+		k := wgtypes.Key{}
+		return k.String()
+	}
+
+	return key.String()
+}
+
+func getEndpointStr(endpoint *net.UDPAddr) string {
+	if endpoint == nil {
+		return ""
+	}
+	return endpoint.String()
+}
+
+// return true if not equal
+func checkWGPeersDiff(lhs wgtypes.PeerConfig, rhs wgtypes.Peer) bool {
+	if lhs.PublicKey.String() != rhs.PublicKey.String() {
+		return true
+	}
+
+	if getKeyStr(lhs.PresharedKey) != getKeyStr(&rhs.PresharedKey) {
+		return true
+	}
+
+	if getEndpointStr(lhs.Endpoint) != getEndpointStr(rhs.Endpoint) {
+		return true
+	}
+
+	lhsAllowedIPs := make([]string, 0)
+	for _, ip := range lhs.AllowedIPs {
+		lhsAllowedIPs = append(lhsAllowedIPs, ip.String())
+	}
+	sort.Strings(lhsAllowedIPs)
+
+	rhsAllowedIPs := make([]string, 0)
+	for _, ip := range rhs.AllowedIPs {
+		rhsAllowedIPs = append(rhsAllowedIPs, ip.String())
+	}
+	sort.Strings(rhsAllowedIPs)
+
+	if len(lhsAllowedIPs) != len(rhsAllowedIPs) {
+		return true
+	}
+	for idx := range lhsAllowedIPs {
+		if lhsAllowedIPs[idx] != rhsAllowedIPs[idx] {
+			return true
+		}
+	}
+
+	if lhs.PersistentKeepaliveInterval != nil {
+		if math.Abs(lhs.PersistentKeepaliveInterval.Seconds()-rhs.PersistentKeepaliveInterval.Seconds()) >= 1.0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func checkPeersDiff(lhs []wgtypes.PeerConfig, rhs []wgtypes.Peer) bool {
+	if len(lhs) != len(rhs) {
+		panic("length of lhs and rhs are not equal")
+	}
+
+	lhsClone := make([]wgtypes.PeerConfig, 0)
+	lhsClone = append(lhsClone, lhs...)
+
+	rhsClone := make([]wgtypes.Peer, 0)
+	rhsClone = append(rhsClone, rhs...)
+
+	sort.Slice(lhsClone, func(i, j int) bool {
+		return lhsClone[i].PublicKey.String() < lhsClone[j].PublicKey.String()
+	})
+
+	sort.Slice(rhsClone, func(i, j int) bool {
+		return rhsClone[i].PublicKey.String() < rhsClone[j].PublicKey.String()
+	})
+
+	for idx := range lhsClone {
+		if isDiff := checkWGPeersDiff(lhsClone[idx], rhsClone[idx]); isDiff {
+			return true
+		}
+	}
+	return false
 }
