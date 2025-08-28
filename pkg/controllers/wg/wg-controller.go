@@ -560,9 +560,11 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 						return fmt.Errorf("failed to get link by name: %s", err.Error())
 					}
 
-					if err := handle.LinkDel(link); err != nil {
-						return fmt.Errorf("failed to delete link: %s", err.Error())
-					}
+					return nil
+				}
+
+				if err := handle.LinkDel(link); err != nil {
+					return fmt.Errorf("failed to delete link: %s", err.Error())
 				}
 
 				return nil
