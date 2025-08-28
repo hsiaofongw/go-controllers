@@ -161,7 +161,14 @@ func NewController(
 	// Set up an event handler for when WireGuardInterface resources change
 	config.WgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			objWg, _ := obj.(*networkingv1alpha1.WireGuardInterface)
+			objWg, ok := obj.(*networkingv1alpha1.WireGuardInterface)
+			if !ok {
+				return
+			}
+
+			if objWg.Spec.Node != controller.nodename {
+				return
+			}
 
 			revLog := revChangeLog{
 				Generation:         fmt.Sprintf("%d", objWg.GetGeneration()),
@@ -175,8 +182,22 @@ func NewController(
 			controller.enqueueWG(objWg)
 		},
 		UpdateFunc: func(old, new interface{}) {
-			oldWG := old.(*networkingv1alpha1.WireGuardInterface)
-			newWG := new.(*networkingv1alpha1.WireGuardInterface)
+			oldWG, ok := old.(*networkingv1alpha1.WireGuardInterface)
+			if !ok {
+				return
+			}
+			newWG, ok := new.(*networkingv1alpha1.WireGuardInterface)
+			if !ok {
+				return
+			}
+
+			if newWG.Spec.Node != controller.nodename {
+				// For un-managed WireGuardInterface, `spec.node` is not supported to be edited.
+				// For managed WireGuardInterface, the higher level controller will delete the
+				// object ties to the old node and create a new object ties to the new node.
+				// So, only the newWG's `spec.node` needs to be concerned.
+				return
+			}
 
 			logger.Info("UpdateFunc for WireGuardInterface resource is called", "objectReference", klog.KObj(newWG))
 
@@ -375,6 +396,29 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	if needReconcile {
 		logger.Info("Need to reconcile", "objectReference", klog.KObj(wgObj), "observedGeneration", wgObj.Status.ObservedGeneration, "generation", wgObj.GetGeneration())
 
+		if pid == nil {
+			// pid == nil means that the interface should reside in the host netns.
+			// This is how we reconcile it:
+			// 1. Check if the interface is already exist in the host netns.
+			// 2. If No, create the interface in the host netns with desired configuration and activate it.
+			// 3. If Yes, check if the interface's configuration matches the desired configuration, if not, update the interface's configuration.
+		} else {
+			// pid != nil means that the interface should reside in the container's netns.
+			if wgObj.Spec.MoveToContainer {
+				// MoveToContainer is true means that the interface should be created at host netns first, then move to container's netns.
+				// This is how we gonna reconcile it:
+				// 1. If the interface with the same name already exists in the host netns, delete it.
+				// 2. Create the interface in the host netns, configure/reconcile it with desired **WireGuard** configuration.
+				// 3. Move it into the container's netns, configure/reconcile it with the desired **IP** configuration.
+			} else {
+				// MoveToContainer is false means that the interface should be created directly in the container's netns.
+				// This is how we gonna reconcile it:
+				// 1. If the interface is not exist in the container's netns, create it.
+				// 2. Configure/reconcile it with the desired **WireGuard** configuration.
+				// 3. Configure/reconcile it with the desired **IP** configuration.
+			}
+		}
+
 		privkeyStr := wgObj.Spec.PrivateKey
 		if privkeyStr == "" {
 			privkeyNS := "default"
@@ -528,6 +572,13 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return fmt.Errorf("failed to update WireGuardInterface status: %s", err.Error())
 	}
 
+	if needReconcile {
+		err = c.updateStatusObservedGeneration(ctx, wgObj)
+		if err != nil {
+			return fmt.Errorf("failed to update status observed generation: %s", err.Error())
+		}
+	}
+
 	return nil
 }
 
@@ -552,14 +603,32 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 		return nil
 	}
 
-	// Every time the status is updated, track the `generation` field at that moment as well (hence the name "observedGeneration")
-	status.ObservedGeneration = wgObj.GetGeneration()
-
 	// Update the status
 	wgObjCopy.Status = *status
 
 	// Use UpdateStatus to update only the Status block of the WireGuardInterface resource
 	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
+
+	if err != nil {
+		return fmt.Errorf("failed to update status: %s", err.Error())
+	}
+
+	logger.V(4).Info("Updated WireGuard interface status", "interfaceName", wgObj.Spec.InterfaceName)
+	return nil
+}
+
+// updateWireGuardInterfaceStatus updates the status of a WireGuard interface with current information
+func (c *Controller) updateStatusObservedGeneration(ctx context.Context, wgObj *networkingv1alpha1.WireGuardInterface) error {
+	logger := klog.FromContext(ctx)
+
+	// NEVER modify objects from the store. It's a read-only, local cache.
+	// You can use DeepCopy() to make a deep copy of original object and modify this copy
+	wgObjCopy := wgObj.DeepCopy()
+
+	// Track the `generation` field at that moment as well (hence the name "observedGeneration")
+	wgObjCopy.Status.ObservedGeneration = wgObj.GetGeneration()
+
+	_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
 
 	if err != nil {
 		return fmt.Errorf("failed to update status: %s", err.Error())

@@ -88,7 +88,7 @@ type WireGuardInterfaceSpec struct {
 	PrivateKey          string                          `json:"privateKey,omitempty"`
 	PrivateKeySecretRef *PrivateKeySecretRef            `json:"privateKeySecretRef,omitempty"`
 	Addresses           []WireGuardInterfaceAddressSpec `json:"addresses"`
-	ListenPort          int                             `json:"listenPort"`
+	ListenPort          *int                            `json:"listenPort,omitempty"`
 	MTU                 *int                            `json:"mtu,omitempty"`
 	Peers               []WireGuardPeerSpec             `json:"peers"`
 }
@@ -333,8 +333,8 @@ func (wgi *WireGuardInterfaceSpec) ToZX2c4WGConf(privateKey *string) (*wgtypes.C
 	}
 
 	wgConf := new(wgtypes.Config)
-	if wgi.ListenPort != 0 {
-		wgConf.ListenPort = &wgi.ListenPort
+	if wgi.ListenPort != nil && *wgi.ListenPort != 0 {
+		wgConf.ListenPort = wgi.ListenPort
 	}
 
 	wgConf.PrivateKey = nil

@@ -135,7 +135,6 @@ spec:
             required:
             - addresses
             - interfaceName
-            - listenPort
             - moveToContainer
             - node
             - peers

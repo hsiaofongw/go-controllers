@@ -679,6 +679,11 @@ func (in *WireGuardInterfaceSpec) DeepCopyInto(out *WireGuardInterfaceSpec) {
 		*out = make([]WireGuardInterfaceAddressSpec, len(*in))
 		copy(*out, *in)
 	}
+	if in.ListenPort != nil {
+		in, out := &in.ListenPort, &out.ListenPort
+		*out = new(int)
+		**out = **in
+	}
 	if in.MTU != nil {
 		in, out := &in.MTU, &out.MTU
 		*out = new(int)
