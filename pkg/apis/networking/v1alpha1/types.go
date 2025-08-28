@@ -17,13 +17,9 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"encoding/base64"
-	"fmt"
 	"net"
-	"time"
 
 	"github.com/vishvananda/netlink"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -254,97 +250,4 @@ type WireGuardInterfaceList struct {
 	metav1.ListMeta `json:"metadata"`
 
 	Items []WireGuardInterface `json:"items"`
-}
-
-func (peerSpec *WireGuardPeerSpec) ToZX2c4WGPeerConf(presharedKey *string) (*wgtypes.PeerConfig, error) {
-	wgPeerConf := new(wgtypes.PeerConfig)
-	if peerSpec.PublicKey == "" {
-		return nil, fmt.Errorf("public key is required")
-	}
-
-	pubkeyObj, err := wgtypes.ParseKey(peerSpec.PublicKey)
-	if err != nil {
-		return nil, fmt.Errorf("invalid peer public key: %s", err.Error())
-	}
-
-	wgPeerConf.PublicKey = pubkeyObj
-
-	if presharedKey != nil && *presharedKey != "" {
-		pskObj, err := wgtypes.ParseKey(*presharedKey)
-		if err != nil {
-			return nil, fmt.Errorf("preshared provided but invalid: %s (note it is optional)", err.Error())
-		}
-		wgPeerConf.PresharedKey = &pskObj
-	}
-
-	if peerSpec.PersistentKeepalive != nil {
-		intv := time.Duration(*peerSpec.PersistentKeepalive) * time.Second
-		wgPeerConf.PersistentKeepaliveInterval = &intv
-	}
-
-	if peerSpec.Endpoint != nil && *peerSpec.Endpoint != "" {
-		peerUDPAddr, err := net.ResolveUDPAddr("udp", *peerSpec.Endpoint)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve peer endpoint %s: %s", *peerSpec.Endpoint, err.Error())
-		}
-		wgPeerConf.Endpoint = peerUDPAddr
-	}
-
-	if len(peerSpec.AllowedIPs) > 0 {
-		for _, iprange := range peerSpec.AllowedIPs {
-			_, ipNet, err := net.ParseCIDR(iprange)
-			if err != nil {
-				return nil, fmt.Errorf("invalid allowed ip cidr: %s: %s", iprange, err.Error())
-			}
-			wgPeerConf.AllowedIPs = append(wgPeerConf.AllowedIPs, *ipNet)
-		}
-	}
-
-	return wgPeerConf, nil
-}
-
-func (wgi *WireGuardInterfaceAddressSpec) MakeNetlinkAddrObject() (*netlink.Addr, error) {
-	family := wgi.Family
-	local := wgi.Local
-	peer := wgi.Peer
-	prefixlen := wgi.Prefixlen
-	if prefixlen == 0 {
-		return nil, fmt.Errorf("invalid prefix length: %d", prefixlen)
-	}
-
-	bits := 32
-	if family == InetFamilyInet6 {
-		bits = 128
-	}
-
-	addrObj := new(netlink.Addr)
-	addrObj.IPNet = new(net.IPNet)
-	addrObj.IP = net.ParseIP(local)
-	addrObj.Peer = new(net.IPNet)
-	addrObj.Peer.IP = net.ParseIP(peer)
-	addrObj.Peer.Mask = net.CIDRMask(prefixlen, bits)
-
-	return addrObj, nil
-}
-
-func (wgi *WireGuardInterfaceSpec) ToZX2c4WGConf(privateKey *string) (*wgtypes.Config, error) {
-	if privateKey == nil || *privateKey == "" {
-		return nil, fmt.Errorf("private key is required")
-	}
-
-	wgConf := new(wgtypes.Config)
-	if wgi.ListenPort != nil && *wgi.ListenPort != 0 {
-		wgConf.ListenPort = wgi.ListenPort
-	}
-
-	wgConf.PrivateKey = nil
-	privKeyStr := base64.StdEncoding.EncodeToString([]byte(*privateKey))
-	privKeyObj, err := wgtypes.ParseKey(privKeyStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to obtain the private key, either not provided or invalid: %s", err.Error())
-	}
-
-	wgConf.PrivateKey = &privKeyObj
-
-	return wgConf, nil
 }

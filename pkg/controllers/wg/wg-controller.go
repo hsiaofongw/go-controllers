@@ -18,15 +18,18 @@ package wg
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"time"
 
 	dockerUtil "example.com/go-util/pkg/util/docker"
 	"golang.zx2c4.com/wireguard/wgctrl"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	dockerSDK "github.com/docker/docker/client"
 	"github.com/vishvananda/netlink"
@@ -392,27 +395,6 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return nil
 	}
 
-	privkeyStr := wgObj.Spec.PrivateKey
-	if privkeyStr == "" {
-		privkeyNS := "default"
-		if wgObj.Spec.PrivateKeySecretRef.Namespace != nil {
-			privkeyNS = *wgObj.Spec.PrivateKeySecretRef.Namespace
-		}
-
-		privKey, err := c.getSecretValue(privkeyNS, wgObj.Spec.PrivateKeySecretRef.Name, wgObj.Spec.PrivateKeySecretRef.Key)
-		if err != nil {
-			return fmt.Errorf("failed to get private key: %s", err.Error())
-		}
-
-		privkeyStr = string(privKey)
-	}
-
-	if privkeyStr == "" {
-		// Event recorder is useful because it enables the user to see things that happened in a central place.
-		c.recorder.Eventf(wgObj, corev1.EventTypeWarning, "PrivateKeyEmpty", "Private key is empty")
-		return fmt.Errorf("private key is empty")
-	}
-
 	if wgObj.Spec.InterfaceName == "" {
 		// Event recorder is useful because it enables the user to see things that happened in a central place.
 		c.recorder.Eventf(wgObj, corev1.EventTypeWarning, "InterfaceNameEmpty", "Interface name is empty")
@@ -424,34 +406,17 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		logger.Info("Need to reconcile", "objectReference", klog.KObj(wgObj), "observedGeneration", wgObj.Status.ObservedGeneration, "generation", wgObj.GetGeneration())
 
 		ipconfigurator := func(handle *netlink.Handle, wgLink netlink.Link) error {
-			addrObjs := make([]*netlink.Addr, 0)
+			nlConf, err := c.ToNetlinkConfig(wgObj)
+			if err != nil {
+				return fmt.Errorf("failed to convert WireGuardInterface to netlink config: %s", err.Error())
+			}
 
 			if err := handle.LinkSetUp(wgLink); err != nil {
 				return fmt.Errorf("failed to set link %s up: %s", wgLink.Attrs().Name, err.Error())
 			}
 
-			// 1. set addresses
-			// 2. set mtu
-			if wgObj.Spec.Addresses != nil {
-				for _, addrSpec := range wgObj.Spec.Addresses {
-					addrObj, err := addrSpec.MakeNetlinkAddrObject()
-					if err != nil {
-						return fmt.Errorf("failed to make netlink addr object: %s", err.Error())
-					}
-					addrObjs = append(addrObjs, addrObj)
-				}
-			}
-
-			if wgObj.Spec.MTU != nil {
-				// default wg (over the Ethernet) mtu is 1420
-				mtu := 1420
-
-				specMTU := wgObj.Spec.MTU
-				if *specMTU != 0 {
-					mtu = *specMTU
-				}
-
-				if err := handle.LinkSetMTU(wgLink, mtu); err != nil {
+			if wgLink.Attrs().MTU != nlConf.MTU {
+				if err := handle.LinkSetMTU(wgLink, nlConf.MTU); err != nil {
 					return fmt.Errorf("failed to set mtu: %s", err.Error())
 				}
 			}
@@ -461,73 +426,42 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 				return fmt.Errorf("failed to get current addresses: %s", err.Error())
 			}
 
-			if len(currentAddrs) == 0 {
-				for _, addrObj := range addrObjs {
-					if err := handle.AddrAdd(wgLink, addrObj); err != nil {
-						return fmt.Errorf("failed to add address: %s", err.Error())
+			diffSet, err := compareNetlinkAddrs(nlConf.Addrs, currentAddrs)
+			if err != nil {
+				return fmt.Errorf("failed to compare netlink addrs: %s", err.Error())
+			}
+
+			if len(diffSet.ShouldBeRemoved) > 0 {
+				for _, addr := range diffSet.ShouldBeRemoved {
+					if err := handle.AddrDel(wgLink, addr); err != nil {
+						return fmt.Errorf("failed to delete address: %s", err.Error())
 					}
 				}
-
-				return nil
 			}
 
-			// if there is already address that is configured, will do reconcilliation
-			// 1. delete all current addresses
-			// 2. add all new addresses
-
-			for _, currAddr := range currentAddrs {
-				if err := handle.AddrDel(wgLink, &currAddr); err != nil {
-					return fmt.Errorf("failed to delete address: %s", err.Error())
-				}
-			}
-
-			for _, addrObj := range addrObjs {
-				if err := handle.AddrAdd(wgLink, addrObj); err != nil {
-					return fmt.Errorf("failed to add address: %s", err.Error())
+			if len(diffSet.ShouldBeAdded) > 0 {
+				for _, addr := range diffSet.ShouldBeAdded {
+					if err := handle.AddrAdd(wgLink, addr); err != nil {
+						return fmt.Errorf("failed to add address: %s", err.Error())
+					}
 				}
 			}
 
 			return nil
 		}
 
-		wgconfigurator := func(wgCtrlCli *wgctrl.Client, reconcile bool) error {
-			wgConf, err := wgObj.Spec.ToZX2c4WGConf(&privkeyStr)
+		wgconfigurator := func(wgCtrlCli *wgctrl.Client) error {
+			wgConf, err := c.ToWireGuardConf(&wgObj.Spec)
 			if err != nil {
 				return fmt.Errorf("failed to convert WireGuardInterface to config: %s", err.Error())
 			}
 
-			for peerIdx, peer := range wgObj.Spec.Peers {
-				var presharedKey *string = nil
+			// todo: reconcile (compare the Config and Device Status)
 
-				if peer.PresharedKeySecretRef != nil {
-					pskSecret := peer.PresharedKeySecretRef
-					pskNs := "default"
-					if pskSecret.Namespace != nil && *pskSecret.Namespace != "" {
-						pskNs = *pskSecret.Namespace
-					}
-
-					psk, err := c.getSecretValue(pskNs, pskSecret.Name, pskSecret.Key)
-					if err != nil {
-						return fmt.Errorf("failed to get preshared key: %s, peerIdx: %d, peer publicKey: %s", err.Error(), peerIdx, peer.PublicKey)
-					}
-					pskStr := base64.StdEncoding.EncodeToString(psk)
-					presharedKey = &pskStr
-				}
-
-				wgPeerConf, err := peer.ToZX2c4WGPeerConf(presharedKey)
-				if err != nil {
-					return fmt.Errorf("failed to convert wgi peer spec to zx2c4 wg peer conf: %s, peerIdx: %d", err.Error(), peerIdx)
-				}
-
-				wgConf.Peers = append(wgConf.Peers, *wgPeerConf)
-			}
-
-			if reconcile {
-				wgConf.ReplacePeers = true
-				if wgConf.Peers != nil {
-					for peeridx := range wgConf.Peers {
-						wgConf.Peers[peeridx].ReplaceAllowedIPs = true
-					}
+			wgConf.ReplacePeers = true
+			if wgConf.Peers != nil {
+				for peeridx := range wgConf.Peers {
+					wgConf.Peers[peeridx].ReplaceAllowedIPs = true
 				}
 			}
 
@@ -568,7 +502,9 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 				if err != nil {
 					return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
 				}
-				if err := wgconfigurator(wgCtrlCli, false); err != nil {
+				defer wgCtrlCli.Close()
+
+				if err := wgconfigurator(wgCtrlCli); err != nil {
 					return fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
 				}
 
@@ -595,7 +531,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		}
 
 		err = c.getCurrentWGInterface(wgObj.Spec.InterfaceName, pid, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
-			return wgconfigurator(wgCtrlCli, true)
+			return wgconfigurator(wgCtrlCli)
 		})
 
 		if err != nil {
@@ -606,7 +542,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 			}
 
 			err = c.createNewWGInterface(wgObj, ipconfigurator, func(wgCtrlCli *wgctrl.Client) error {
-				return wgconfigurator(wgCtrlCli, false)
+				return wgconfigurator(wgCtrlCli)
 			})
 			if err != nil {
 				return fmt.Errorf("failed to create new WireGuard interface: %s", err.Error())
@@ -734,8 +670,13 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 	return status, nil
 }
 
-func (c *Controller) getSecretValue(ns, secName, key string) ([]byte, error) {
-	secObj, err := c.secretsLister.Secrets(ns).Get(secName)
+func (c *Controller) getSecretValue(ns *string, secName, key string) ([]byte, error) {
+	usedNs := "default"
+	if ns != nil && *ns != "" {
+		usedNs = *ns
+	}
+
+	secObj, err := c.secretsLister.Secrets(usedNs).Get(secName)
 	if err != nil {
 		return nil, err
 	}
@@ -952,4 +893,213 @@ func (c *Controller) getInterfacePid(wgObjSpec *networkingv1alpha1.WireGuardInte
 	}
 
 	return nil, fmt.Errorf("no container is specified")
+}
+
+func (c *Controller) ToWireGuardConf(wgi *networkingv1alpha1.WireGuardInterfaceSpec) (*wgtypes.Config, error) {
+	privateKey := ""
+	if wgi.PrivateKey != "" {
+		privateKey = wgi.PrivateKey
+	} else if wgi.PrivateKeySecretRef != nil {
+		sec, err := c.getSecretValue(wgi.PrivateKeySecretRef.Namespace, wgi.PrivateKeySecretRef.Name, wgi.PrivateKeySecretRef.Key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get private key secret: %s", err.Error())
+		}
+		privateKey = base64.StdEncoding.EncodeToString(sec)
+	} else {
+		return nil, fmt.Errorf("private key is required")
+	}
+
+	privKeyObj, err := wgtypes.ParseKey(privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to obtain the private key, either not provided or invalid: %s", err.Error())
+	}
+
+	wgConf := new(wgtypes.Config)
+	if wgi.ListenPort != nil && *wgi.ListenPort != 0 {
+		wgConf.ListenPort = wgi.ListenPort
+	}
+
+	wgConf.PrivateKey = &privKeyObj
+
+	peerConfigs := make([]wgtypes.PeerConfig, 0)
+	for _, peer := range wgi.Peers {
+		peerConf, err := c.ToZX2c4WGPeerConf(&peer)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert peer spec to wg peer conf: %s", err.Error())
+		}
+
+		peerConfigs = append(peerConfigs, *peerConf)
+	}
+
+	wgConf.Peers = peerConfigs
+	return wgConf, nil
+}
+
+func (c *Controller) ToZX2c4WGPeerConf(peerSpec *networkingv1alpha1.WireGuardPeerSpec) (*wgtypes.PeerConfig, error) {
+	wgPeerConf := new(wgtypes.PeerConfig)
+	if peerSpec.PublicKey == "" {
+		return nil, fmt.Errorf("public key is required")
+	}
+
+	pubkeyObj, err := wgtypes.ParseKey(peerSpec.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid peer public key: %s", err.Error())
+	}
+
+	wgPeerConf.PublicKey = pubkeyObj
+
+	if peerSpec.PresharedKeySecretRef != nil {
+
+		psk, err := c.getSecretValue(peerSpec.PresharedKeySecretRef.Namespace, peerSpec.PresharedKeySecretRef.Name, peerSpec.PresharedKeySecretRef.Key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get preshared key secret: %s", err.Error())
+		}
+		pskObj, err := wgtypes.ParseKey(base64.StdEncoding.EncodeToString(psk))
+		if err != nil {
+			return nil, fmt.Errorf("preshared provided but invalid: %s (note it is optional)", err.Error())
+		}
+		wgPeerConf.PresharedKey = &pskObj
+	}
+
+	if peerSpec.PersistentKeepalive != nil {
+		intv := time.Duration(*peerSpec.PersistentKeepalive) * time.Second
+		wgPeerConf.PersistentKeepaliveInterval = &intv
+	}
+
+	if peerSpec.Endpoint != nil && *peerSpec.Endpoint != "" {
+		peerUDPAddr, err := net.ResolveUDPAddr("udp", *peerSpec.Endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve peer endpoint %s: %s", *peerSpec.Endpoint, err.Error())
+		}
+		wgPeerConf.Endpoint = peerUDPAddr
+	}
+
+	if len(peerSpec.AllowedIPs) > 0 {
+		for _, iprange := range peerSpec.AllowedIPs {
+			_, ipNet, err := net.ParseCIDR(iprange)
+			if err != nil {
+				return nil, fmt.Errorf("invalid allowed ip cidr: %s: %s", iprange, err.Error())
+			}
+			wgPeerConf.AllowedIPs = append(wgPeerConf.AllowedIPs, *ipNet)
+		}
+	}
+
+	return wgPeerConf, nil
+}
+
+type netlinkConfig struct {
+	Addrs []*netlink.Addr
+	MTU   int
+}
+
+func (c *Controller) ToNetlinkConfig(wgObj *networkingv1alpha1.WireGuardInterface) (*netlinkConfig, error) {
+	netlinkConf := new(netlinkConfig)
+
+	if wgObj.Spec.MTU != nil && *wgObj.Spec.MTU != 0 {
+		netlinkConf.MTU = *wgObj.Spec.MTU
+	}
+
+	if wgObj.Spec.Addresses != nil {
+		for _, addrSpec := range wgObj.Spec.Addresses {
+			addrObj, err := c.MakeNetlinkAddrObject(&addrSpec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to make netlink addr object: %s", err.Error())
+			}
+			netlinkConf.Addrs = append(netlinkConf.Addrs, addrObj)
+		}
+	}
+
+	return netlinkConf, nil
+}
+
+func (c *Controller) MakeNetlinkAddrObject(addrSpec *networkingv1alpha1.WireGuardInterfaceAddressSpec) (*netlink.Addr, error) {
+	family := addrSpec.Family
+	local := addrSpec.Local
+	peer := addrSpec.Peer
+	prefixlen := addrSpec.Prefixlen
+	if prefixlen == 0 {
+		return nil, fmt.Errorf("invalid prefix length: %d", prefixlen)
+	}
+
+	bits := 32
+	if family == networkingv1alpha1.InetFamilyInet6 {
+		bits = 128
+	}
+
+	addrObj := new(netlink.Addr)
+	addrObj.IPNet = new(net.IPNet)
+	addrObj.IP = net.ParseIP(local)
+	addrObj.Peer = new(net.IPNet)
+	addrObj.Peer.IP = net.ParseIP(peer)
+	addrObj.Peer.Mask = net.CIDRMask(prefixlen, bits)
+
+	return addrObj, nil
+}
+
+type NetlinkAddrDiff struct {
+	ShouldBeAdded   []*netlink.Addr
+	ShouldBeRemoved []*netlink.Addr
+}
+
+type NLAddrHandler struct {
+	nlAddr *netlink.Addr
+}
+
+func NewNLAddrHandler(nlAddr *netlink.Addr) *NLAddrHandler {
+	return &NLAddrHandler{nlAddr: nlAddr}
+}
+
+func (h *NLAddrHandler) GetHash(other *netlink.Addr) string {
+	// Two critical fields are compared here:
+	// 1. local IP
+	// 2. Peer IP (if there is)
+	// Anything else is not considered.
+
+	hashes := make([]byte, 0)
+
+	iphash := sha256.Sum256([]byte(h.nlAddr.String()))
+	hashes = append(hashes, iphash[:]...)
+
+	if h.nlAddr.Peer != nil {
+		peerHash := sha256.Sum256([]byte(h.nlAddr.Peer.String()))
+		hashes = append(hashes, peerHash[:]...)
+	}
+
+	hash := sha256.Sum256(hashes)
+	return fmt.Sprintf("%x", hash)
+}
+
+func compareNetlinkAddrs(desiredAddrs []*netlink.Addr, currentAddrs []netlink.Addr) (*NetlinkAddrDiff, error) {
+	lhsIdxMap := make(map[string]int)
+	for idx, addrPtr := range desiredAddrs {
+		nlAddrHandler := NewNLAddrHandler(addrPtr)
+		lhsIdxMap[nlAddrHandler.GetHash(addrPtr)] = idx
+	}
+
+	rhsIdxMap := make(map[string]int)
+	for idx, addr := range currentAddrs {
+		nlAddrHandler := NewNLAddrHandler(&addr)
+		hash := nlAddrHandler.GetHash(&addr)
+		rhsIdxMap[hash] = idx
+	}
+
+	freshSet := make([]*netlink.Addr, 0)
+	for hash, idx := range lhsIdxMap {
+		if _, ok := rhsIdxMap[hash]; !ok {
+			freshSet = append(freshSet, desiredAddrs[idx])
+		}
+	}
+
+	staleSet := make([]*netlink.Addr, 0)
+	for hash, idx := range rhsIdxMap {
+		if _, ok := lhsIdxMap[hash]; !ok {
+			staleSet = append(staleSet, &currentAddrs[idx])
+		}
+	}
+
+	result := new(NetlinkAddrDiff)
+	result.ShouldBeAdded = freshSet
+	result.ShouldBeRemoved = staleSet
+
+	return result, nil
 }
