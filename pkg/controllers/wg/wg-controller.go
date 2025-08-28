@@ -497,6 +497,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 			}
 
 			if isDiff {
+				logger.Info("Configuring wg device", "interfaceName", wgObj.Spec.InterfaceName)
 				return wgCtrlCli.ConfigureDevice(wgObj.Spec.InterfaceName, *wgConf)
 			}
 
