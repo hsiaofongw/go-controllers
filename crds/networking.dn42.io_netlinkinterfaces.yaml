@@ -43,115 +43,81 @@ spec:
           spec:
             description: NetlinkInterfaceSpec is the spec for a NetlinkInterface resource
             properties:
+              addresses:
+                items:
+                  properties:
+                    family:
+                      type: string
+                    local:
+                      type: string
+                    peer:
+                      type: string
+                    prefixlen:
+                      type: integer
+                  required:
+                  - family
+                  - local
+                  - peer
+                  - prefixlen
+                  type: object
+                type: array
               bridge:
                 properties:
-                  addresses:
+                  slaves:
+                    description: Names of the interfaces that are enslaved to this
+                      bridge.
                     items:
-                      properties:
-                        family:
-                          type: string
-                        local:
-                          type: string
-                        noPrefixRoute:
-                          type: boolean
-                        peer:
-                          type: string
-                        prefixlen:
-                          type: integer
-                      required:
-                      - family
-                      - local
-                      - noPrefixRoute
-                      - peer
-                      - prefixlen
-                      type: object
+                      type: string
                     type: array
-                  container:
-                    properties:
-                      docker:
-                        properties:
-                          name:
-                            type: string
-                        required:
-                        - name
-                        type: object
-                      netns:
-                        properties:
-                          pid:
-                            type: integer
-                        type: object
-                    type: object
-                  interfaceName:
-                    type: string
-                  mtu:
-                    type: integer
                 required:
-                - interfaceName
+                - slaves
+                type: object
+              container:
+                description: |-
+                  It specific where to place the interface, if it's nil, the interface will be placed in the host netns,
+                  otherwise, the interface will be placed in the container's netns.
+                properties:
+                  docker:
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  netns:
+                    properties:
+                      pid:
+                        type: integer
+                    type: object
                 type: object
               dummy:
-                properties:
-                  addresses:
-                    items:
-                      properties:
-                        family:
-                          type: string
-                        local:
-                          type: string
-                        noPrefixRoute:
-                          type: boolean
-                        peer:
-                          type: string
-                        prefixlen:
-                          type: integer
-                      required:
-                      - family
-                      - local
-                      - noPrefixRoute
-                      - peer
-                      - prefixlen
-                      type: object
-                    type: array
-                  container:
-                    properties:
-                      docker:
-                        properties:
-                          name:
-                            type: string
-                        required:
-                        - name
-                        type: object
-                      netns:
-                        properties:
-                          pid:
-                            type: integer
-                        type: object
-                    type: object
-                  interfaceName:
-                    type: string
-                  mtu:
-                    type: integer
-                required:
-                - interfaceName
                 type: object
               interfaceName:
                 type: string
+              mtu:
+                type: integer
               node:
                 type: string
               type:
                 type: string
+              up:
+                description: |-
+                  Up is the administrative state of the interface.
+                  This will give the user the flexibility to turn it up or down on-demand.
+                type: boolean
               veth:
                 properties:
                   localPeer:
                     properties:
                       addresses:
+                        description: When present, these addresses will take precedence
+                          over the addresses specified in the NetlinkInterfaceSpec.
                         items:
                           properties:
                             family:
                               type: string
                             local:
                               type: string
-                            noPrefixRoute:
-                              type: boolean
                             peer:
                               type: string
                             prefixlen:
@@ -159,12 +125,13 @@ spec:
                           required:
                           - family
                           - local
-                          - noPrefixRoute
                           - peer
                           - prefixlen
                           type: object
                         type: array
                       container:
+                        description: When present, this field will take precedence
+                          over the container specified in the NetlinkInterfaceSpec.
                         properties:
                           docker:
                             properties:
@@ -180,27 +147,25 @@ spec:
                             type: object
                         type: object
                       interfaceName:
+                        description: When present, this field will take precedence
+                          over the interface name specified in the NetlinkInterfaceSpec.
                         type: string
                       master:
-                        description: Master is the name of the bridge interface to
-                          which the veth pair is connected.
+                        description: Master is the name of the bridge interface where
+                          this veth is enslaved to.
                         type: string
-                      mtu:
-                        type: integer
-                    required:
-                    - interfaceName
                     type: object
                   peerPeer:
                     properties:
                       addresses:
+                        description: When present, these addresses will take precedence
+                          over the addresses specified in the NetlinkInterfaceSpec.
                         items:
                           properties:
                             family:
                               type: string
                             local:
                               type: string
-                            noPrefixRoute:
-                              type: boolean
                             peer:
                               type: string
                             prefixlen:
@@ -208,12 +173,13 @@ spec:
                           required:
                           - family
                           - local
-                          - noPrefixRoute
                           - peer
                           - prefixlen
                           type: object
                         type: array
                       container:
+                        description: When present, this field will take precedence
+                          over the container specified in the NetlinkInterfaceSpec.
                         properties:
                           docker:
                             properties:
@@ -229,69 +195,52 @@ spec:
                             type: object
                         type: object
                       interfaceName:
+                        description: When present, this field will take precedence
+                          over the interface name specified in the NetlinkInterfaceSpec.
                         type: string
                       master:
-                        description: Master is the name of the bridge interface to
-                          which the veth pair is connected.
+                        description: Master is the name of the bridge interface where
+                          this veth is enslaved to.
                         type: string
-                      mtu:
-                        type: integer
-                    required:
-                    - interfaceName
                     type: object
                 type: object
               vxlan:
                 properties:
-                  addresses:
-                    items:
-                      properties:
-                        family:
-                          type: string
-                        local:
-                          type: string
-                        noPrefixRoute:
-                          type: boolean
-                        peer:
-                          type: string
-                        prefixlen:
-                          type: integer
-                      required:
-                      - family
-                      - local
-                      - noPrefixRoute
-                      - peer
-                      - prefixlen
-                      type: object
-                    type: array
-                  container:
-                    properties:
-                      docker:
-                        properties:
-                          name:
-                            type: string
-                        required:
-                        - name
-                        type: object
-                      netns:
-                        properties:
-                          pid:
-                            type: integer
-                        type: object
-                    type: object
-                  interfaceName:
+                  dev:
+                    description: |-
+                      Name of the dataplane interface
+                      It is useful when you want the vxlan take some vrf-enslaved interface as the dataplane,
+                      or you want it automatically deduce the correct MTU.
                     type: string
-                  mtu:
+                  local:
+                    description: The src IP of the outer encapsulated ip packet.
+                    type: string
+                  noLearning:
+                    description: |-
+                      NoLearning is usefull when you want to take over the controlplane of vxlan, such as
+                      you setup your own BGPEVPN to distribute the L2 reachability information.
+                    type: boolean
+                  vni:
+                    format: int64
                     type: integer
                 required:
-                - interfaceName
+                - vni
                 type: object
             required:
             - interfaceName
             - node
             - type
+            - up
             type: object
           status:
             properties:
+              flags:
+                description: |-
+                  Flags, these represent the administrative state of the interface.
+                  Administrative state is all about what you want it to be.
+                items:
+                  type: string
+                type: array
               hostname:
                 description: |2-
                    Hostname of the node where the interface is provisioned,
@@ -390,12 +339,21 @@ spec:
                 description: The most recent generation observed by the controller.
                 format: int64
                 type: integer
+              operState:
+                description: |-
+                  OperState, see https://docs.kernel.org/networking/operstates.html
+                  This represents the operational state of the interface.
+                  Operational state is all about how it currently looks like.
+                type: string
             required:
+            - flags
             - hostname
             - nodename
             - observedGeneration
+            - operState
             type: object
         required:
+        - metadata
         - spec
         type: object
     served: true

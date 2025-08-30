@@ -29,7 +29,7 @@ import (
 // NetlinkInterface is a specification for a NetlinkInterface resource
 type NetlinkInterface struct {
 	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.ObjectMeta `json:"metadata"`
 
 	Spec NetlinkInterfaceSpec `json:"spec"`
 
@@ -60,34 +60,42 @@ const (
 )
 
 type NetlinkInterfaceBridgeSpec struct {
-	InterfaceName string                         `json:"interfaceName"`
-	Container     *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
-	MTU           *int                           `json:"mtu,omitempty"`
-	Addresses     []NetlinkInterfaceAddressSpec  `json:"addresses,omitempty"`
+	// Names of the interfaces that are enslaved to this bridge.
+	Slaves []string `json:"slaves"`
 }
 
 type NetlinkInterfaceVxlanSpec struct {
-	InterfaceName string                         `json:"interfaceName"`
-	Container     *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
-	MTU           *int                           `json:"mtu,omitempty"`
-	Addresses     []NetlinkInterfaceAddressSpec  `json:"addresses,omitempty"`
+	VNI int64 `json:"vni"`
+
+	// Name of the dataplane interface
+	// It is useful when you want the vxlan take some vrf-enslaved interface as the dataplane,
+	// or you want it automatically deduce the correct MTU.
+	Dev *string `json:"dev,omitempty"`
+
+	// The src IP of the outer encapsulated ip packet.
+	Local *string `json:"local,omitempty"`
+
+	// NoLearning is usefull when you want to take over the controlplane of vxlan, such as
+	// you setup your own BGPEVPN to distribute the L2 reachability information.
+	// +optional
+	NoLearning bool `json:"noLearning"`
 }
 
 type NetlinkInterfaceDummySpec struct {
-	InterfaceName string                         `json:"interfaceName"`
-	Container     *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
-	MTU           *int                           `json:"mtu,omitempty"`
-	Addresses     []NetlinkInterfaceAddressSpec  `json:"addresses,omitempty"`
 }
 
 type NetlinkInterfaceVethPeerSpec struct {
-	InterfaceName string                         `json:"interfaceName"`
-	Container     *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
-	Addresses     []NetlinkInterfaceAddressSpec  `json:"addresses,omitempty"`
-	MTU           *int                           `json:"mtu,omitempty"`
+	// When present, this field will take precedence over the interface name specified in the NetlinkInterfaceSpec.
+	InterfaceName *string `json:"interfaceName,omitempty"`
 
-	// Master is the name of the bridge interface to which the veth pair is connected.
+	// Master is the name of the bridge interface where this veth is enslaved to.
 	Master *string `json:"master,omitempty"`
+
+	// When present, these addresses will take precedence over the addresses specified in the NetlinkInterfaceSpec.
+	Addresses []NetlinkInterfaceAddressSpec `json:"addresses,omitempty"`
+
+	// When present, this field will take precedence over the container specified in the NetlinkInterfaceSpec.
+	Container *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
 }
 
 type NetlinkInterfaceVethSpec struct {
@@ -97,21 +105,32 @@ type NetlinkInterfaceVethSpec struct {
 
 // NetlinkInterfaceSpec is the spec for a NetlinkInterface resource
 type NetlinkInterfaceSpec struct {
-	Node          string                      `json:"node"`
-	InterfaceName string                      `json:"interfaceName"`
-	Type          NetlinkInterfaceType        `json:"type"`
-	Bridge        *NetlinkInterfaceBridgeSpec `json:"bridge,omitempty"`
-	Vxlan         *NetlinkInterfaceVxlanSpec  `json:"vxlan,omitempty"`
-	Dummy         *NetlinkInterfaceDummySpec  `json:"dummy,omitempty"`
-	Veth          *NetlinkInterfaceVethSpec   `json:"veth,omitempty"`
+	Node          string               `json:"node"`
+	InterfaceName string               `json:"interfaceName"`
+	Type          NetlinkInterfaceType `json:"type"`
+
+	Bridge *NetlinkInterfaceBridgeSpec `json:"bridge,omitempty"`
+	Vxlan  *NetlinkInterfaceVxlanSpec  `json:"vxlan,omitempty"`
+	Dummy  *NetlinkInterfaceDummySpec  `json:"dummy,omitempty"`
+	Veth   *NetlinkInterfaceVethSpec   `json:"veth,omitempty"`
+
+	Addresses []NetlinkInterfaceAddressSpec `json:"addresses,omitempty"`
+	MTU       *int                          `json:"mtu,omitempty"`
+
+	// Up is the administrative state of the interface.
+	// This will give the user the flexibility to turn it up or down on-demand.
+	Up bool `json:"up"`
+
+	// It specific where to place the interface, if it's nil, the interface will be placed in the host netns,
+	// otherwise, the interface will be placed in the container's netns.
+	Container *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
 }
 
 type NetlinkInterfaceAddressSpec struct {
-	Family        InetFamily `json:"family"`
-	Local         string     `json:"local"`
-	Peer          string     `json:"peer"`
-	Prefixlen     int        `json:"prefixlen"`
-	NoPrefixRoute bool       `json:"noPrefixRoute"`
+	Family    InetFamily `json:"family"`
+	Local     string     `json:"local"`
+	Peer      string     `json:"peer"`
+	Prefixlen int        `json:"prefixlen"`
 }
 
 type NetlinkInterfaceStatus struct {
@@ -127,6 +146,15 @@ type NetlinkInterfaceStatus struct {
 
 	// The most recent generation observed by the controller.
 	ObservedGeneration int64 `json:"observedGeneration"`
+
+	// OperState, see https://docs.kernel.org/networking/operstates.html
+	// This represents the operational state of the interface.
+	// Operational state is all about how it currently looks like.
+	OperState string `json:"operState"`
+
+	// Flags, these represent the administrative state of the interface.
+	// Administrative state is all about what you want it to be.
+	Flags []string `json:"flags"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
