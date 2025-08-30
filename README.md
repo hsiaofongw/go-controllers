@@ -1,10 +1,18 @@
 # WireGuard controller
 
+## Overview
+
 This is a Kubernetes-based WireGuard controller (operator), it's job is to ensure that the state of WireGuard interfaces in nodes are (most of the time) consistent with the desired state that you defined. 
 
 You define the desired state (i.e. your intention about how the system should be like), by creating a `WireGuardNetworkPlan` resource object (see [./example/wgp/wgp1.yaml](./example/wgp/wgp1.yaml)), and post it to the api server, the controllers will carrying out your intention, and converging the node's actual state to the desired state. All in a declarative manner.
 
 Alternatively, You can just manually create a few `WireGuardInterface` resource objects (see [./example/wgi/lax1-wg1.yaml](./example/wgi/lax1-wg1.yaml)) and post them to the api server, doing so gives you more granular control over the `WireGuardNetworkPlan` approach.
+
+## Core Features
+
+1. Intention-oriented, declarative WireGuard network management.
+2. Multi-node support and container-awareness.
+3. Flexible configuration (network-wide or per-node customization).
 
 ## Install Dependencies
 
@@ -114,3 +122,14 @@ docker exec -it agent1 ping -c 3 fe80::a:1771%wg1
 # 3 packets transmitted, 3 received, 0% packet loss, time 2066ms
 # rtt min/avg/max/mdev = 0.318/0.495/0.750/0.184 ms
 ```
+
+## CRDs and Controller Design
+
+The WireGuard controller consists of two main components:
+
+1. **WireGuardNetworkPlan Controller** (`wgplan-controller`): Manages high-level network topology definitions
+2. **WireGuard Interface Controller** (`wg-controller`): Runs on each node to manage local WireGuard interfaces
+
+### Custom Resources
+- `WireGuardNetworkPlan`: Defines complete network topologies with nodes, links, and configurations
+- `WireGuardInterface`: Individual WireGuard interface configurations for granular control
