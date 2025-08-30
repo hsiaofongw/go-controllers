@@ -13,6 +13,8 @@ This is a Kubernetes-based WireGuard controller (operator), it's job is to ensur
 go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
 ```
 
+Note: if `$GOPATH` is not defined in your shell profile, define it in the shell's startup script, if `$GOPATH/bin` is not in the `$PATH`, include it as well.
+
 ## Build
 
 After all dependencies are in position:
