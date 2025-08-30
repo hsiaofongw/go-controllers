@@ -46,19 +46,14 @@ spec:
               addresses:
                 items:
                   properties:
-                    family:
+                    ipcidr:
+                      description: If PeerCIDR is not nil, the '/prefixlen' suffix
+                        shall be omitted.
                       type: string
-                    local:
+                    peerCidr:
                       type: string
-                    peer:
-                      type: string
-                    prefixlen:
-                      type: integer
                   required:
-                  - family
-                  - local
-                  - peer
-                  - prefixlen
+                  - ipcidr
                   type: object
                 type: array
               bridge:
@@ -114,19 +109,14 @@ spec:
                           over the addresses specified in the NetlinkInterfaceSpec.
                         items:
                           properties:
-                            family:
+                            ipcidr:
+                              description: If PeerCIDR is not nil, the '/prefixlen'
+                                suffix shall be omitted.
                               type: string
-                            local:
+                            peerCidr:
                               type: string
-                            peer:
-                              type: string
-                            prefixlen:
-                              type: integer
                           required:
-                          - family
-                          - local
-                          - peer
-                          - prefixlen
+                          - ipcidr
                           type: object
                         type: array
                       container:
@@ -162,19 +152,14 @@ spec:
                           over the addresses specified in the NetlinkInterfaceSpec.
                         items:
                           properties:
-                            family:
+                            ipcidr:
+                              description: If PeerCIDR is not nil, the '/prefixlen'
+                                suffix shall be omitted.
                               type: string
-                            local:
+                            peerCidr:
                               type: string
-                            peer:
-                              type: string
-                            prefixlen:
-                              type: integer
                           required:
-                          - family
-                          - local
-                          - peer
-                          - prefixlen
+                          - ipcidr
                           type: object
                         type: array
                       container:
@@ -234,6 +219,10 @@ spec:
             type: object
           status:
             properties:
+              addresses:
+                items:
+                  type: string
+                type: array
               flags:
                 description: |-
                   Flags, these represent the administrative state of the interface.
@@ -346,6 +335,7 @@ spec:
                   Operational state is all about how it currently looks like.
                 type: string
             required:
+            - addresses
             - flags
             - hostname
             - nodename

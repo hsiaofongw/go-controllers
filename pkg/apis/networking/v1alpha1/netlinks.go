@@ -154,6 +154,8 @@ type NetlinkInterfaceStatus struct {
 	// Flags, these represent the administrative state of the interface.
 	// Administrative state is all about what you want it to be.
 	Flags []string `json:"flags"`
+
+	Addresses []string `json:"addresses"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

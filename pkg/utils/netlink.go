@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"net"
 	"os"
 
 	"github.com/vishvananda/netlink"
@@ -71,4 +72,37 @@ func WithNetnsWGCli(containerPid *int, hook func(wgCtrlCli *wgctrl.Client) error
 	}
 
 	return hook(wgCtrlCli)
+}
+
+func FlagsToStrings(flags net.Flags) []string {
+	flagStrs := make([]string, 0)
+	if flags&net.FlagUp == net.FlagUp {
+		flagStrs = append(flagStrs, "UP")
+	}
+	if flags&net.FlagBroadcast == net.FlagBroadcast {
+		flagStrs = append(flagStrs, "BROADCAST")
+	}
+
+	if flags&net.FlagPointToPoint == net.FlagPointToPoint {
+		flagStrs = append(flagStrs, "POINTOPOINT")
+	}
+	if flags&net.FlagMulticast == net.FlagMulticast {
+		flagStrs = append(flagStrs, "MULTICAST")
+	}
+
+	if flags&net.FlagRunning == net.FlagRunning {
+		flagStrs = append(flagStrs, "RUNNING")
+	}
+	if flags&net.FlagLoopback == net.FlagLoopback {
+		flagStrs = append(flagStrs, "LOOPBACK")
+	}
+	return flagStrs
+}
+
+func AddrToString(addr netlink.Addr) string {
+	if addr.Peer != nil {
+		return fmt.Sprintf("%s -> %s", addr.IP.String(), addr.Peer.String())
+	}
+
+	return addr.String()
 }

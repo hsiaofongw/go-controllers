@@ -73,6 +73,7 @@ const (
 
 // Controller is the controller implementation for WireGuardInterface resources
 type Controller struct {
+	nodeName     string
 	dockerClient *dockerSDK.Client
 	// kubeclientset is a standard kubernetes clientset
 	kubeclientset kubernetes.Interface
@@ -108,6 +109,7 @@ type ControllerConfig struct {
 	WgPlanInformer  v1alpha1Informer.WireGuardNetworkPlanInformer
 	SecretsInformer secretsinformers.SecretInformer
 	NetlinkInformer v1alpha1Informer.NetlinkInterfaceInformer
+	NodeName        string
 }
 
 // NewController returns a new WireGuardInterface controller
@@ -152,6 +154,7 @@ func NewController(
 		nlSynced:        config.NetlinkInformer.Informer().HasSynced,
 		workqueue:       workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:        recorder,
+		nodeName:        config.NodeName,
 	}
 
 	logger.Info("Setting up event handlers")
@@ -477,11 +480,58 @@ func (c *Controller) updateNetlinkInterfaceStatus(ctx context.Context, nlObj *ne
 func (c *Controller) getCurrentNetlinkInterfaceStatus(ctx context.Context, nlObj *networkingv1alpha1.NetlinkInterface) (*networkingv1alpha1.NetlinkInterfaceStatus, error) {
 	logger := klog.FromContext(ctx)
 
-	status := new(networkingv1alpha1.NetlinkInterfaceStatus)
-
 	logger.Info("Getting current NetlinkInterface status", "objectReference", klog.KObj(nlObj))
 
-	// todo: implement this
+	status := new(networkingv1alpha1.NetlinkInterfaceStatus)
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get hostname: %s", err.Error())
+	}
+
+	status.Hostname = hostname
+	status.Nodename = c.nodeName
+
+	pid, err := c.getInterfacePid(nlObj.Spec.Container)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get interface pid: %s", err.Error())
+	}
+
+	err = pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
+		link, err := handle.LinkByName(nlObj.Spec.InterfaceName)
+		if err != nil {
+			return fmt.Errorf("failed to get link %s: %s", nlObj.Spec.InterfaceName, err.Error())
+		}
+
+		attrs := link.Attrs()
+		mtu := attrs.MTU
+		status.MTU = &mtu
+
+		addrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
+		if err != nil {
+			return fmt.Errorf("failed to get addresses of link %s: %s", nlObj.Spec.InterfaceName, err.Error())
+		}
+
+		status.Netlink = networkingv1alpha1.NewFromNetlinkLinkAttrs(attrs, addrs)
+
+		status.ObservedGeneration = nlObj.GetGeneration()
+
+		status.OperState = attrs.OperState.String()
+
+		status.Flags = pkgutils.FlagsToStrings(attrs.Flags)
+
+		addrStrs := make([]string, 0)
+		for _, addr := range addrs {
+			addrStrs = append(addrStrs, pkgutils.AddrToString(addr))
+		}
+		status.Addresses = addrStrs
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current NetlinkInterface status: %s", err.Error())
+	}
+
 	return status, nil
 }
 
