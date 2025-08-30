@@ -1,5 +1,7 @@
 # WireGuard controller
 
+> "What if the desired state of the network can be defined in a single place, and declaratively?"
+
 ## Overview
 
 This is a Kubernetes-based WireGuard controller (operator). Its job is to ensure that the state of WireGuard interfaces in nodes is (most of the time) consistent with the desired state that you define. 
