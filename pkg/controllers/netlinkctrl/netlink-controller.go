@@ -143,15 +143,15 @@ func NewController(
 	// Set up event handler for when WireGuardNetworkPlan resources change
 	config.NetlinkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			objWgPlan, _ := obj.(*networkingv1alpha1.WireGuardNetworkPlan)
+			nlObj, _ := obj.(*networkingv1alpha1.NetlinkInterface)
 			revLog := pkgutils.RevChangeLog{
-				Generation:         fmt.Sprintf("%d", objWgPlan.GetGeneration()),
-				ResourceVersion:    objWgPlan.GetResourceVersion(),
-				ObservedGeneration: fmt.Sprintf("%d", objWgPlan.Status.ObservedGeneration),
+				Generation:         fmt.Sprintf("%d", nlObj.GetGeneration()),
+				ResourceVersion:    nlObj.GetResourceVersion(),
+				ObservedGeneration: fmt.Sprintf("%d", nlObj.Status.ObservedGeneration),
 			}
 			revLogJSON, _ := json.Marshal(revLog)
-			logger.Info("AddFunc for WireGuardNetworkPlan resource is called", "objectReference", klog.KObj(objWgPlan), "Revision log", string(revLogJSON))
-			controller.enqueueNl(objWgPlan)
+			logger.Info("AddFunc for NetlinkInterface resource is called", "objectReference", klog.KObj(nlObj), "Revision log", string(revLogJSON))
+			controller.enqueueNl(nlObj)
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldNl := old.(*networkingv1alpha1.NetlinkInterface)
@@ -302,10 +302,32 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return err
 	}
 
+	pid, err := c.getInterfacePid(nlObj.Spec.Container)
+	if err != nil {
+		return fmt.Errorf("failed to get interface pid: %s", err.Error())
+	}
+
 	deletionTime := nlObj.GetDeletionTimestamp()
 	if deletionTime != nil {
 		// Clean up underlying resources, then
 		// clear all finalizers from the object
+
+		err := pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
+			link, err := handle.LinkByName(nlObj.Spec.InterfaceName)
+			if err != nil {
+				if _, ok := err.(netlink.LinkNotFoundError); !ok {
+					return fmt.Errorf("failed to get link %s: %s", nlObj.Spec.InterfaceName, err.Error())
+				}
+
+				return nil
+			}
+
+			return handle.LinkDel(link)
+		})
+
+		if err != nil {
+			return fmt.Errorf("failed to delete link %s: %s", nlObj.Spec.InterfaceName, err.Error())
+		}
 
 		nlObjCopy := nlObj.DeepCopy()
 		nlObjCopy.SetFinalizers([]string{})
@@ -325,7 +347,6 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 		switch nlObj.Spec.Type {
 		case networkingv1alpha1.NetlinkInterfaceTypeDummy:
-			logger.Info("Reconciling Dummy NetlinkInterface", "objectReference", klog.KObj(nlObj))
 			err = c.reconcileDummyNetlinkInterface(ctx, nlObj)
 			if err != nil {
 				return fmt.Errorf("failed to reconcile Dummy NetlinkInterface: %s", err.Error())
@@ -359,8 +380,8 @@ func (c *Controller) reconcileDummyNetlinkInterface(ctx context.Context, nlObj *
 	err = pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
 		_, err := handle.LinkByName(nlObj.Spec.InterfaceName)
 		if err != nil {
-			if _, ok := err.(netlink.LinkNotFoundError); ok {
-				return fmt.Errorf("link %s not found", nlObj.Spec.InterfaceName)
+			if _, ok := err.(netlink.LinkNotFoundError); !ok {
+				return fmt.Errorf("failed to get link %s: %s", nlObj.Spec.InterfaceName, err.Error())
 			}
 
 			link := new(netlink.Dummy)
@@ -571,10 +592,10 @@ func getAddrSpecKey(addrSpec *networkingv1alpha1.NetlinkInterfaceAddressSpec) st
 }
 
 func getNlAddrKey(addr *netlink.Addr) string {
-	if addr.Peer != nil {
-		return fmt.Sprintf("%s -> %s", addr.String(), addr.Peer)
+	if addr == nil {
+		return ""
 	}
-	return addr.String()
+	return pkgutils.AddrToString(*addr)
 }
 
 func getReconciliationPlan(addrSpecs []networkingv1alpha1.NetlinkInterfaceAddressSpec, nlAddrs []netlink.Addr) (*NetlinkAddrDifferenceSet, error) {
@@ -640,9 +661,9 @@ func toNetlinkAddr(addrSpec *networkingv1alpha1.NetlinkInterfaceAddressSpec) (*n
 		return nil, fmt.Errorf("failed to parse peerCidr %s: %s", *addrSpec.PeerCIDR, err.Error())
 	}
 
-	localIp, _, err := net.ParseCIDR(addrSpec.IPCIDR)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse ipcidr %s: %s", addrSpec.IPCIDR, err.Error())
+	localIp := net.ParseIP(addrSpec.IPCIDR)
+	if localIp == nil {
+		return nil, fmt.Errorf("failed to parse ipcidr %s", addrSpec.IPCIDR)
 	}
 
 	addrObj := new(netlink.Addr)

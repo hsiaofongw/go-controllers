@@ -6,7 +6,7 @@ metadata:
     - netlinkinterface.networking.dn42.io/finalizer
 spec:
   node: lax1
-  interfaceName: nl1-agent1-dummy
+  interfaceName: nl1-dummy
   type: dummy
   dummy: {}
   addresses:

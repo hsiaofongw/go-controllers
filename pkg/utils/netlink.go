@@ -104,5 +104,13 @@ func AddrToString(addr netlink.Addr) string {
 		return fmt.Sprintf("%s -> %s", addr.IP.String(), addr.Peer.String())
 	}
 
+	if addr.IPNet != nil {
+		return addr.IPNet.String()
+	}
+
+	if addr.IP != nil {
+		return addr.IP.String()
+	}
+
 	return addr.String()
 }
