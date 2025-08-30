@@ -17,10 +17,8 @@ limitations under the License.
 package wgplan
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha1"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -34,6 +32,8 @@ import (
 
 	dockerSDK "github.com/docker/docker/client"
 	"golang.org/x/time/rate"
+
+	pkgutils "k8s.io/sample-controller/pkg/utils"
 
 	"github.com/cbergoon/merkletree"
 	corev1 "k8s.io/api/core/v1"
@@ -156,17 +156,11 @@ func NewController(
 
 	logger.Info("Setting up event handlers")
 
-	type revChangeLog struct {
-		Generation         string `json:"generation"`
-		ResourceVersion    string `json:"resourceVersion"`
-		ObservedGeneration string `json:"observedGeneration"`
-	}
-
 	// Set up event handler for when WireGuardNetworkPlan resources change
 	config.WgPlanInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			objWgPlan, _ := obj.(*networkingv1alpha1.WireGuardNetworkPlan)
-			revLog := revChangeLog{
+			revLog := pkgutils.RevChangeLog{
 				Generation:         fmt.Sprintf("%d", objWgPlan.GetGeneration()),
 				ResourceVersion:    objWgPlan.GetResourceVersion(),
 				ObservedGeneration: fmt.Sprintf("%d", objWgPlan.Status.ObservedGeneration),
@@ -184,7 +178,7 @@ func NewController(
 				logger.Info("Revision changed", "old", oldWG.ResourceVersion, "new", newWG.ResourceVersion, "objectReference", klog.KObj(newWG))
 			}
 
-			changelog := revChangeLog{
+			changelog := pkgutils.RevChangeLog{
 				Generation:         fmt.Sprintf("%d -> %d", oldWG.GetGeneration(), newWG.GetGeneration()),
 				ResourceVersion:    fmt.Sprintf("%s -> %s", oldWG.GetResourceVersion(), newWG.GetResourceVersion()),
 				ObservedGeneration: fmt.Sprintf("%d -> %d", oldWG.Status.ObservedGeneration, newWG.GetGeneration()),
@@ -314,7 +308,7 @@ func (c *Controller) enqueueWG(obj interface{}) {
 func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName) error {
 	logger := klog.LoggerWithValues(klog.FromContext(ctx), "objectRef", objectRef)
 
-	logger.V(4).Info("Processing wgi object creation", "object", objectRef.Name)
+	logger.V(4).Info("Processing wgnetworkplan object update/creation", "object", objectRef.Name)
 
 	wgPlanObj, err := c.wgPlanLister.Get(objectRef.Name)
 	if err != nil {
@@ -584,45 +578,14 @@ func (wgaIntf *WGActualPlanInterface) GetWGIntfName(fromNode, toNode string, lin
 	return fmt.Sprintf("wg-%s-%s-%d", fromNode, toNode, linkIdx)
 }
 
-// An object of type CriticalField implements the merkletree.Content interface.
-type CriticalField struct {
-	FieldPath []string
-	Value     string
-}
-
-func (cf *CriticalField) CalculateHash() ([]byte, error) {
-	fieldJSON, err := json.Marshal(cf.FieldPath)
-	if err != nil {
-		return nil, err
-	}
-	fieldHash := sha256.Sum256(fieldJSON)
-	valueHash := sha256.Sum256([]byte(cf.Value))
-	contentHash := sha256.Sum256(append(fieldHash[:], valueHash[:]...))
-	return contentHash[:], nil
-}
-
-func (cf *CriticalField) Equals(other merkletree.Content) (bool, error) {
-	lhsHash, err := cf.CalculateHash()
-	if err != nil {
-		return false, err
-	}
-
-	rhsHash, err := other.CalculateHash()
-	if err != nil {
-		return false, err
-	}
-
-	return bytes.Equal(lhsHash, rhsHash), nil
-}
-
 func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
 	criticalFields := make([]merkletree.Content, 0)
 
-	criticalFields = append(criticalFields, &CriticalField{
+	criticalFields = append(criticalFields, &pkgutils.CriticalField{
 		FieldPath: []string{"Node"},
 		Value:     wgaIntf.Node,
 	})
-	criticalFields = append(criticalFields, &CriticalField{
+	criticalFields = append(criticalFields, &pkgutils.CriticalField{
 		FieldPath: []string{"InterfaceName"},
 		Value:     wgaIntf.InterfaceName,
 	})
@@ -631,16 +594,16 @@ func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
 		if err != nil {
 			return err
 		}
-		criticalFields = append(criticalFields, &CriticalField{
+		criticalFields = append(criticalFields, &pkgutils.CriticalField{
 			FieldPath: []string{"Addresses", fmt.Sprintf("%d", addrIdx)},
 			Value:     string(addrJSON),
 		})
 	}
-	criticalFields = append(criticalFields, &CriticalField{
+	criticalFields = append(criticalFields, &pkgutils.CriticalField{
 		FieldPath: []string{"MTU"},
 		Value:     fmt.Sprintf("%d", wgaIntf.MTU),
 	})
-	criticalFields = append(criticalFields, &CriticalField{
+	criticalFields = append(criticalFields, &pkgutils.CriticalField{
 		FieldPath: []string{"MoveToContainer"},
 		Value:     fmt.Sprintf("%t", wgaIntf.MoveToContainer),
 	})
@@ -649,30 +612,30 @@ func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
 		if err != nil {
 			return err
 		}
-		criticalFields = append(criticalFields, &CriticalField{
+		criticalFields = append(criticalFields, &pkgutils.CriticalField{
 			FieldPath: []string{"Container"},
 			Value:     string(containerJSON),
 		})
 	}
-	criticalFields = append(criticalFields, &CriticalField{
+	criticalFields = append(criticalFields, &pkgutils.CriticalField{
 		FieldPath: []string{"WGIntfName"},
 		Value:     wgaIntf.WGIntfName,
 	})
 	if wgaIntf.ListenPort != nil {
-		criticalFields = append(criticalFields, &CriticalField{
+		criticalFields = append(criticalFields, &pkgutils.CriticalField{
 			FieldPath: []string{"ListenPort"},
 			Value:     fmt.Sprintf("%d", *wgaIntf.ListenPort),
 		})
 	}
-	criticalFields = append(criticalFields, &CriticalField{
+	criticalFields = append(criticalFields, &pkgutils.CriticalField{
 		FieldPath: []string{"Hostname"},
 		Value:     wgaIntf.Hostname,
 	})
-	criticalFields = append(criticalFields, &CriticalField{
+	criticalFields = append(criticalFields, &pkgutils.CriticalField{
 		FieldPath: []string{"PublicKey"},
 		Value:     wgaIntf.PublicKey,
 	})
-	criticalFields = append(criticalFields, &CriticalField{
+	criticalFields = append(criticalFields, &pkgutils.CriticalField{
 		FieldPath: []string{"PrivateKey"},
 		Value:     wgaIntf.PrivateKey,
 	})
@@ -680,7 +643,7 @@ func (wgaIntf *WGActualPlanInterface) ComputeConfigHash() error {
 	if err != nil {
 		return err
 	}
-	criticalFields = append(criticalFields, &CriticalField{
+	criticalFields = append(criticalFields, &pkgutils.CriticalField{
 		FieldPath: []string{"Peer"},
 		Value:     string(peerJSON),
 	})
