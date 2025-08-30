@@ -37,11 +37,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	secretsinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	secretlisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -80,15 +78,8 @@ type Controller struct {
 	// sampleclientset is a clientset for our own API group
 	sampleclientset clientset.Interface
 
-	secretsLister secretlisters.SecretLister
-	wgLister      v1alpha1Lister.WireGuardInterfaceLister
-	wgPlanLister  v1alpha1Lister.WireGuardNetworkPlanLister
-	nlLister      v1alpha1Lister.NetlinkInterfaceLister
-
-	wgSynced      cache.InformerSynced
-	secretsSynced cache.InformerSynced
-	wgPlanSynced  cache.InformerSynced
-	nlSynced      cache.InformerSynced
+	nlLister v1alpha1Lister.NetlinkInterfaceLister
+	nlSynced cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -104,10 +95,6 @@ type Controller struct {
 type ControllerConfig struct {
 	Kubeclientset   kubernetes.Interface
 	Sampleclientset clientset.Interface
-
-	WgInformer      v1alpha1Informer.WireGuardInterfaceInformer
-	WgPlanInformer  v1alpha1Informer.WireGuardNetworkPlanInformer
-	SecretsInformer secretsinformers.SecretInformer
 	NetlinkInformer v1alpha1Informer.NetlinkInterfaceInformer
 	NodeName        string
 }
@@ -144,13 +131,7 @@ func NewController(
 		dockerClient:    dockerClient,
 		kubeclientset:   config.Kubeclientset,
 		sampleclientset: config.Sampleclientset,
-		wgLister:        config.WgInformer.Lister(),
-		wgPlanLister:    config.WgPlanInformer.Lister(),
-		secretsLister:   config.SecretsInformer.Lister(),
 		nlLister:        config.NetlinkInformer.Lister(),
-		wgSynced:        config.WgInformer.Informer().HasSynced,
-		wgPlanSynced:    config.WgPlanInformer.Informer().HasSynced,
-		secretsSynced:   config.SecretsInformer.Informer().HasSynced,
 		nlSynced:        config.NetlinkInformer.Informer().HasSynced,
 		workqueue:       workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:        recorder,
@@ -160,7 +141,7 @@ func NewController(
 	logger.Info("Setting up event handlers")
 
 	// Set up event handler for when WireGuardNetworkPlan resources change
-	config.WgPlanInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	config.NetlinkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			objWgPlan, _ := obj.(*networkingv1alpha1.WireGuardNetworkPlan)
 			revLog := pkgutils.RevChangeLog{
@@ -228,9 +209,6 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	logger.Info("Waiting for informer caches to sync")
 
 	if ok := cache.WaitForCacheSync(ctx.Done(),
-		c.wgSynced,
-		c.secretsSynced,
-		c.wgPlanSynced,
 		c.nlSynced,
 	); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
