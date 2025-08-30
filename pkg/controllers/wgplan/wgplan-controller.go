@@ -853,12 +853,12 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 			planIntfObj.Node = link.FromNode
 			planIntfObj.InterfaceName = planIntfObj.GetWGIntfName(link.FromNode, toNode.NodeName, linkIdx)
 			planIntfObj.WGIntfName = planIntfObj.InterfaceName
+
+			listenPort := fromNode.portRange.Start + linkIdx
+			planIntfObj.ListenPort = &listenPort
 			if fromNode.nodeSpec.Underlay != nil {
 				underlay := fromNode.nodeSpec.Underlay
 				if underlay.Hostname != "" {
-					// not behind a NAT
-					baseListenPort := fromNode.portRange.Start
-					planIntfObj.ListenPort = &baseListenPort
 					planIntfObj.Hostname = underlay.Hostname
 				}
 			}
@@ -869,6 +869,10 @@ func (c *Controller) NewWGActualPlanFromObj(wgPlanObj *networkingv1alpha1.WireGu
 			planIntfObj.MTU = 1420
 			if fromNode.nodeSpec.MTU != nil {
 				planIntfObj.MTU = *fromNode.nodeSpec.MTU
+			}
+
+			if len(fromNode.nodeSpec.Addresses) > 0 {
+				planIntfObj.Addresses = fromNode.nodeSpec.Addresses
 			}
 
 			if toNode.OverrideAddresses {

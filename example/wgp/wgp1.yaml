@@ -11,6 +11,9 @@ spec:
     - nodeName: lax1
       underlay:
         hostname: 192.168.65.3
+        portRange:
+          start: 52820
+          end: 52839
       privateKey: "EBoAy8rh54aVJsbXx0kNrjEWfPtAowo/fC3I0AKJMGg="
       moveToContainer: true
       container:

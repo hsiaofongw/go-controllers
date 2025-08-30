@@ -422,10 +422,6 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 				return fmt.Errorf("failed to convert WireGuardInterface to netlink config: %s", err.Error())
 			}
 
-			if err := handle.LinkSetUp(wgLink); err != nil {
-				return fmt.Errorf("failed to set link %s up: %s", wgLink.Attrs().Name, err.Error())
-			}
-
 			if wgLink.Attrs().MTU != nlConf.MTU {
 				if err := handle.LinkSetMTU(wgLink, nlConf.MTU); err != nil {
 					return fmt.Errorf("failed to set mtu: %s", err.Error())
@@ -442,19 +438,15 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 				return fmt.Errorf("failed to compare netlink addrs: %s", err.Error())
 			}
 
-			if len(diffSet.ShouldBeRemoved) > 0 {
-				for _, addr := range diffSet.ShouldBeRemoved {
-					if err := handle.AddrDel(wgLink, addr); err != nil {
-						return fmt.Errorf("failed to delete address: %s", err.Error())
-					}
+			for _, addr := range diffSet.ShouldBeRemoved {
+				if err := handle.AddrDel(wgLink, addr); err != nil {
+					return fmt.Errorf("failed to delete address: %s", err.Error())
 				}
 			}
 
-			if len(diffSet.ShouldBeAdded) > 0 {
-				for _, addr := range diffSet.ShouldBeAdded {
-					if err := handle.AddrAdd(wgLink, addr); err != nil {
-						return fmt.Errorf("failed to add address: %s", err.Error())
-					}
+			for _, addr := range diffSet.ShouldBeAdded {
+				if err := handle.AddrAdd(wgLink, addr); err != nil {
+					return fmt.Errorf("failed to add address: %s", err.Error())
 				}
 			}
 
@@ -504,80 +496,9 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 			return nil
 		}
 
-		if pid == nil {
-			// pid == nil means that the interface should reside in the host netns.
-			// This is how we reconcile it:
-			// 1. Check if the interface is already exist in the host netns.
-			// 2. If No, create the interface in the host netns with desired configuration and activate it.
-			// 3. If Yes, check if the interface's configuration matches the desired configuration, if not, update the interface's configuration.
-
-			err := withNetlinkHandle(nil, func(handle *netlink.Handle) error {
-				_, err := handle.LinkByName(wgObj.Spec.InterfaceName)
-				if err != nil {
-					if _, ok := err.(netlink.LinkNotFoundError); !ok {
-						return fmt.Errorf("failed to get link by name: %s", err.Error())
-					}
-
-					wgLink := new(netlink.Wireguard)
-					wgLink.Attrs().Name = wgObj.Spec.InterfaceName
-					if err := handle.LinkAdd(wgLink); err != nil {
-						return fmt.Errorf("failed to add link: %s", err.Error())
-					}
-
-					if err := handle.LinkSetUp(wgLink); err != nil {
-						return fmt.Errorf("failed to set link up: %s", err.Error())
-					}
-				}
-
-				link, _ := handle.LinkByName(wgObj.Spec.InterfaceName)
-				if err := ipconfigurator(handle, link); err != nil {
-					return fmt.Errorf("failed to configure/reconcile ip: %s", err.Error())
-				}
-
-				wgCtrlCli, err := wgctrl.New()
-				if err != nil {
-					return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
-				}
-				defer wgCtrlCli.Close()
-
-				if err := wgconfigurator(wgCtrlCli); err != nil {
-					return fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
-				}
-
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("failed to get link for reconciliation: %s", err.Error())
-			}
-		} else {
-			// pid != nil means that the interface should reside in the container's netns.
-
-			// Delete any interface with the same name in the host netns to simplify the upcoming processing.
-			withNetlinkHandle(nil, func(handle *netlink.Handle) error {
-				link, err := handle.LinkByName(wgObj.Spec.InterfaceName)
-				if err != nil {
-					if _, ok := err.(netlink.LinkNotFoundError); !ok {
-						return fmt.Errorf("failed to get link by name: %s", err.Error())
-					}
-
-					return nil
-				}
-
-				if err := handle.LinkDel(link); err != nil {
-					return fmt.Errorf("failed to delete link: %s", err.Error())
-				}
-
-				return nil
-			})
-
-			// Check if the interface is already in the container's netns.
-			err := withNetlinkHandle(pid, func(handle *netlink.Handle) error {
-				_, err := handle.LinkByName(wgObj.Spec.InterfaceName)
-				return err
-			})
-
-			// If in container's netns, the interface is not found, first create it in the host netns.
-			// Then, depending on if the `MoveToContainer` is set to true, move the interface to the container's netns after configured its wg parameters.
+		// create if not exist
+		err := withNetlinkHandle(pid, func(handle *netlink.Handle) error {
+			_, err := handle.LinkByName(wgObj.Spec.InterfaceName)
 			if err != nil {
 				if _, ok := err.(netlink.LinkNotFoundError); !ok {
 					return fmt.Errorf("failed to get link by name: %s", err.Error())
@@ -590,76 +511,54 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 						return fmt.Errorf("failed to add link: %s", err.Error())
 					}
 
-					if err := handle.LinkSetUp(wgLink); err != nil {
-						return fmt.Errorf("failed to set link up: %s", err.Error())
-					}
-
-					wgCtrlCli, err := wgctrl.New()
-					if err != nil {
-						return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
-					}
-					defer wgCtrlCli.Close()
-
-					if err := wgconfigurator(wgCtrlCli); err != nil {
-						return fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
-					}
-
 					if wgObj.Spec.MoveToContainer {
+						// if the interface is desired to move to container once after created,
+						// just configure it's wg parameters before it goes into the container.
+						if err := withNetnsWGCli(pid, wgconfigurator); err != nil {
+							return fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
+						}
+					}
+
+					if pid != nil {
 						if err := handle.LinkSetNsPid(wgLink, *pid); err != nil {
 							return fmt.Errorf("failed to move link to ns: %s", err.Error())
 						}
 					}
-
 					return nil
 				})
-
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to create and configure wg: %s", err.Error())
 				}
 			}
-
-			err = withNetns(pid, func() error {
-				wgCtrlCli, err := wgctrl.New()
-				if err != nil {
-					return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
-				}
-				defer wgCtrlCli.Close()
-
-				return wgconfigurator(wgCtrlCli)
-			})
-			if err != nil {
-				return fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
-			}
-
-			err = withNetlinkHandle(pid, func(handle *netlink.Handle) error {
-				link, err := handle.LinkByName(wgObj.Spec.InterfaceName)
-				if err != nil {
-					return fmt.Errorf("failed to get link by name: %s", err.Error())
-				}
-
-				if err := ipconfigurator(handle, link); err != nil {
-					return fmt.Errorf("failed to configure/reconcile ip: %s", err.Error())
-				}
-
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("failed to configure/reconcile ip: %s", err.Error())
-			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("failed to get link by name for reconciliation: %s", err.Error())
 		}
-	}
 
-	logger.Info("Updating WireGuardInterface status", "objectReference", klog.KObj(wgObj))
-	// Update the status with current WireGuard interface information
-	err = c.updateWireGuardInterfaceStatus(ctx, wgObj)
-	if err != nil {
-		return fmt.Errorf("failed to update WireGuardInterface status: %s", err.Error())
-	}
+		if err := withNetnsWGCli(pid, wgconfigurator); err != nil {
+			return fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
+		}
 
-	if needReconcile {
+		err = withNetlinkHandle(pid, func(handle *netlink.Handle) error {
+			link, _ := handle.LinkByName(wgObj.Spec.InterfaceName)
+			return ipconfigurator(handle, link)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to configure/reconcile ip: %s", err.Error())
+		}
+
+		logger.Info("Updating WireGuardInterface status", "objectReference", klog.KObj(wgObj))
+		// Update the status with current WireGuard interface information
+		err = c.updateWireGuardInterfaceStatus(ctx, wgObj)
+		if err != nil {
+			return fmt.Errorf("failed to update WireGuardInterface status: %s", err.Error())
+		}
+
+		logger.Info("Updating WireGuardInterface status observedGeneration", "objectReference", klog.KObj(wgObj))
 		err = c.updateStatusObservedGeneration(ctx, wgObj)
 		if err != nil {
-			return fmt.Errorf("failed to update status observed generation: %s", err.Error())
+			return fmt.Errorf("failed to update status observedGeneration: %s", err.Error())
 		}
 	}
 
@@ -709,10 +608,15 @@ func (c *Controller) updateStatusObservedGeneration(ctx context.Context, wgObj *
 	// You can use DeepCopy() to make a deep copy of original object and modify this copy
 	wgObjCopy := wgObj.DeepCopy()
 
-	// Track the `generation` field at that moment as well (hence the name "observedGeneration")
-	wgObjCopy.Status.ObservedGeneration = wgObj.GetGeneration()
+	latestWgObj, err := c.wgLister.Get(wgObj.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get latest WireGuardInterface: %s", err.Error())
+	}
 
-	_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
+	// Track the `generation` field at that moment as well (hence the name "observedGeneration")
+	wgObjCopy.Status.ObservedGeneration = latestWgObj.GetGeneration()
+
+	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
 
 	if err != nil {
 		return fmt.Errorf("failed to update status: %s", err.Error())
@@ -762,16 +666,7 @@ func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPi
 		return nil
 	}
 
-	err = withNetns(containerPid, func() error {
-		wgCtrlCli, err := wgctrl.New()
-		if err != nil {
-			return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
-		}
-		defer wgCtrlCli.Close()
-
-		return wgHook(wgCtrlCli)
-	})
-	if err != nil {
+	if err := withNetnsWGCli(containerPid, wgHook); err != nil {
 		return nil, fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
 	}
 
@@ -843,7 +738,10 @@ func withNetlinkHandle(pid *int, hook func(handle *netlink.Handle) error) error 
 	}
 }
 
-func withNetns(containerPid *int, hook func() error) error {
+func withNetnsWGCli(containerPid *int, hook func(wgCtrlCli *wgctrl.Client) error) error {
+
+	var wgCtrlCli *wgctrl.Client
+	var err error
 
 	if containerPid != nil {
 		nsHandle, err := netns.GetFromPid(*containerPid)
@@ -861,9 +759,21 @@ func withNetns(containerPid *int, hook func() error) error {
 
 		netns.Set(nsHandle)
 		defer netns.Set(hostNsHandle)
+
+		wgCtrlCli, err = wgctrl.New()
+		if err != nil {
+			return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
+		}
+		defer wgCtrlCli.Close()
+	} else {
+		wgCtrlCli, err = wgctrl.New()
+		if err != nil {
+			return fmt.Errorf("failed to get wgctrl client: %s", err.Error())
+		}
+		defer wgCtrlCli.Close()
 	}
 
-	return hook()
+	return hook(wgCtrlCli)
 }
 
 func (c *Controller) getThisHostname() (string, error) {
