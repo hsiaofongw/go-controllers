@@ -514,14 +514,25 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 					if wgObj.Spec.MoveToContainer {
 						// if the interface is desired to move to container once after created,
 						// just configure it's wg parameters before it goes into the container.
-						if err := withNetnsWGCli(pid, wgconfigurator); err != nil {
+						if err := withNetnsWGCli(nil, wgconfigurator); err != nil {
 							return fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
+						}
+
+						if err := handle.LinkSetUp(wgLink); err != nil {
+							return fmt.Errorf("failed to set link up: %s", err.Error())
 						}
 					}
 
 					if pid != nil {
 						if err := handle.LinkSetNsPid(wgLink, *pid); err != nil {
 							return fmt.Errorf("failed to move link to ns: %s", err.Error())
+						}
+
+						if err := withNetlinkHandle(pid, func(handle *netlink.Handle) error {
+							link, _ := handle.LinkByName(wgObj.Spec.InterfaceName)
+							return handle.LinkSetUp(link)
+						}); err != nil {
+							return fmt.Errorf("failed to set link up: %s", err.Error())
 						}
 					}
 					return nil
@@ -555,11 +566,6 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 			return fmt.Errorf("failed to update WireGuardInterface status: %s", err.Error())
 		}
 
-		logger.Info("Updating WireGuardInterface status observedGeneration", "objectReference", klog.KObj(wgObj))
-		err = c.updateStatusObservedGeneration(ctx, wgObj)
-		if err != nil {
-			return fmt.Errorf("failed to update status observedGeneration: %s", err.Error())
-		}
 	}
 
 	return nil
@@ -585,6 +591,8 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 		// Don't fail the entire sync if status update fails
 		return nil
 	}
+
+	status.ObservedGeneration = wgObj.GetGeneration()
 
 	// Update the status
 	wgObjCopy.Status = *status
