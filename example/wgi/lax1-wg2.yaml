@@ -32,7 +32,6 @@ spec:
       local: "fe80::a:1771"
       peer: "fe80::1771"
       prefixlen: 64
-      noPrefixRoute: true
   listenPort: 51022
   mtu: 1420
   peers:

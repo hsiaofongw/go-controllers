@@ -1,6 +1,10 @@
 # WireGuard controller
 
-This is a Kubernetes-based WireGuard controller (operator), it's job is to ensure that the state of WireGuard interfaces in nodes are consistent with the desired state.
+This is a Kubernetes-based WireGuard controller (operator), it's job is to ensure that the state of WireGuard interfaces in nodes are (most of the time) consistent with the desired state that you defined. 
+
+You define the desired state (i.e. your intention about how the system should be like), by creating a `WireGuardNetworkPlan` resource object (see [./example/wgp/wgp1.yaml](./example/wgp/wgp1.yaml)), and post it to the api server, the controllers will carrying out your intention, and converging the node's actual state to the desired state. All in a declarative manner.
+
+Alternatively, You can just manually create a few `WireGuardInterface` resource objects (see [./example/wgi/lax1-wg1.yaml](./example/wgi/lax1-wg1.yaml)) and post them to the api server, doing so gives you more granular control over the `WireGuardNetworkPlan` approach.
 
 ## Install Dependencies
 
@@ -62,3 +66,51 @@ docker exec -w /root/projects/go-projects/go-controller/bin -it agentx \
 
 Don't forget to ensure that /root/.kube/config is actually exist and valid before launch all of these.
 
+Try out things:
+
+```sh
+kubectl apply -f ./example/wgp/wgp1.yaml
+kubectl apply -f ./example/wgi/lax1-wg1.yaml
+kubectl apply -f ./example/wgi/lax1-wg2.yaml
+```
+
+If everything woks as expected, you should found the interfaces are created and moved into the container's netns:
+
+```sh
+docker exec -it agent1 ip a show type wireguard
+
+# 37: wg-lax1-lax2-0: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1420 qdisc noqueue state UNKNOWN group default 
+#     link/none 
+#     inet 10.4.0.1 peer 10.4.0.2/32 scope global wg-lax1-lax2-0
+#        valid_lft forever preferred_lft forever
+# 38: wg1: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1420 qdisc noqueue state UNKNOWN group default 
+#     link/none 
+#     inet6 fe80::1771 peer fe80::a:1771/64 scope link 
+#        valid_lft forever preferred_lft forever
+```
+
+You can now ping the another end of the tunnel:
+
+```sh
+docker exec -it agent1 ping -c 3 10.4.0.2
+
+# PING 10.4.0.2 (10.4.0.2) 56(84) bytes of data.
+# 64 bytes from 10.4.0.2: icmp_seq=1 ttl=64 time=0.299 ms
+# 64 bytes from 10.4.0.2: icmp_seq=2 ttl=64 time=0.848 ms
+# 64 bytes from 10.4.0.2: icmp_seq=3 ttl=64 time=0.808 ms
+
+# --- 10.4.0.2 ping statistics ---
+# 3 packets transmitted, 3 received, 0% packet loss, time 2044ms
+# rtt min/avg/max/mdev = 0.299/0.651/0.848/0.249 ms
+
+docker exec -it agent1 ping -c 3 fe80::a:1771%wg1
+
+# PING fe80::a:1771%wg1 (fe80::a:1771%wg1) 56 data bytes
+# 64 bytes from fe80::a:1771%wg1: icmp_seq=1 ttl=64 time=0.318 ms
+# 64 bytes from fe80::a:1771%wg1: icmp_seq=2 ttl=64 time=0.750 ms
+# 64 bytes from fe80::a:1771%wg1: icmp_seq=3 ttl=64 time=0.418 ms
+
+# --- fe80::a:1771%wg1 ping statistics ---
+# 3 packets transmitted, 3 received, 0% packet loss, time 2066ms
+# rtt min/avg/max/mdev = 0.318/0.495/0.750/0.184 ms
+```
