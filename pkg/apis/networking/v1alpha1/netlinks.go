@@ -127,10 +127,9 @@ type NetlinkInterfaceSpec struct {
 }
 
 type NetlinkInterfaceAddressSpec struct {
-	Family    InetFamily `json:"family"`
-	Local     string     `json:"local"`
-	Peer      string     `json:"peer"`
-	Prefixlen int        `json:"prefixlen"`
+	// If PeerCIDR is not nil, the '/prefixlen' suffix shall be omitted.
+	IPCIDR   string  `json:"ipcidr"`
+	PeerCIDR *string `json:"peerCidr,omitempty"`
 }
 
 type NetlinkInterfaceStatus struct {
