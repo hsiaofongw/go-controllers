@@ -537,7 +537,7 @@ type NetlinkAddrDifferenceSet struct {
 
 func getAddrSpecKey(addrSpec *networkingv1alpha1.NetlinkInterfaceAddressSpec) string {
 	if addrSpec.PeerCIDR != nil {
-		return fmt.Sprintf("%s -> %s", addrSpec.IPCIDR, addrSpec.PeerCIDR)
+		return fmt.Sprintf("%s -> %s", addrSpec.IPCIDR, *addrSpec.PeerCIDR)
 	}
 	return addrSpec.IPCIDR
 }
