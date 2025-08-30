@@ -2,11 +2,11 @@
 
 ## Overview
 
-This is a Kubernetes-based WireGuard controller (operator), it's job is to ensure that the state of WireGuard interfaces in nodes are (most of the time) consistent with the desired state that you defined. 
+This is a Kubernetes-based WireGuard controller (operator). Its job is to ensure that the state of WireGuard interfaces in nodes is (most of the time) consistent with the desired state that you define. 
 
-You define the desired state (i.e. your intention about how the system should be like), by creating a `WireGuardNetworkPlan` resource object (see [./example/wgp/wgp1.yaml](./example/wgp/wgp1.yaml)), and post it to the api server, the controllers will carrying out your intention, and converging the node's actual state to the desired state. All in a declarative manner.
+You define the desired state (i.e., your intention about how the system should be) by creating a `WireGuardNetworkPlan` resource object (see [./example/wgp/wgp1.yaml](./example/wgp/wgp1.yaml)) and posting it to the API server. The controllers will carry out your intention and converge the node's actual state to the desired state, all in a declarative manner.
 
-Alternatively, You can just manually create a few `WireGuardInterface` resource objects (see [./example/wgi/lax1-wg1.yaml](./example/wgi/lax1-wg1.yaml)) and post them to the api server, doing so gives you more granular control over the `WireGuardNetworkPlan` approach.
+Alternatively, you can manually create a few `WireGuardInterface` resource objects (see [./example/wgi/lax1-wg1.yaml](./example/wgi/lax1-wg1.yaml)) and post them to the API server. Doing so gives you more granular control than the `WireGuardNetworkPlan` approach.
 
 ## Core Features
 
@@ -32,9 +32,9 @@ Note: if `$GOPATH` is not defined in your shell profile, define it in the shell'
 After all dependencies are in position:
 
 ```sh
-# NOTE: PICK A TEST Kubernetes CLUSTER for testing,
-# It will apply some CRD manifests to the api-server.
-# ** Be aware that ** it might overrides the already applied CRDs in your k8s cluster with the same name.
+# NOTE: PICK A TEST Kubernetes CLUSTER for testing.
+# It will apply some CRD manifests to the API server.
+# ** Be aware that ** it might override the already applied CRDs in your k8s cluster with the same name.
 ./build-all.sh
 ```
 
@@ -48,7 +48,7 @@ docker compose up -d
 
 Now you will have three containers: agentx, agent1 and agent2 if everything goes well.
 
-Where agentx is the privileged container that runs in the host netns and shares the host pid namespace, we will run containers in agentx container:
+Where agentx is the privileged container that runs in the host netns and shares the host pid namespace. We will run containers in the agentx container:
 
 
 Start controller for node 'lax1':
@@ -72,7 +72,7 @@ docker exec -w /root/projects/go-projects/go-controller/bin -it agentx \
     ./wgplan-controller --kubeconfig=/root/.kube/config -v 4
 ```
 
-Don't forget to ensure that /root/.kube/config is actually exist and valid before launch all of these.
+Don't forget to ensure that /root/.kube/config actually exists and is valid before launching all of these.
 
 Try out things:
 
@@ -82,7 +82,7 @@ kubectl apply -f ./example/wgi/lax1-wg1.yaml
 kubectl apply -f ./example/wgi/lax1-wg2.yaml
 ```
 
-If everything woks as expected, you should found the interfaces are created and moved into the container's netns:
+If everything works as expected, you should find that the interfaces are created and moved into the container's netns:
 
 ```sh
 docker exec -it agent1 ip a show type wireguard
