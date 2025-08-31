@@ -114,3 +114,19 @@ func AddrToString(addr netlink.Addr) string {
 
 	return addr.String()
 }
+
+func GetEnslavedLinks(handle *netlink.Handle, master netlink.Link) (map[string]netlink.Link, error) {
+	allNLLinks, err := handle.LinkList()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all netlink links: %s", err.Error())
+	}
+
+	enslavedNLLinks := make(map[string]netlink.Link)
+	for _, lk := range allNLLinks {
+		if lk.Attrs().MasterIndex == master.Attrs().Index {
+			enslavedNLLinks[lk.Attrs().Name] = lk
+		}
+	}
+
+	return enslavedNLLinks, nil
+}

@@ -132,6 +132,10 @@ type NetlinkInterfaceAddressSpec struct {
 	PeerCIDR *string `json:"peerCidr,omitempty"`
 }
 
+type NetlinkInterfaceBridgeStatus struct {
+	EnslavedLinks []string `json:"enslavedLinks"`
+}
+
 type NetlinkInterfaceStatus struct {
 	//  Hostname of the node where the interface is provisioned,
 	// or the hostname of the host of the container in case of containerization.
@@ -156,6 +160,8 @@ type NetlinkInterfaceStatus struct {
 	Flags []string `json:"flags"`
 
 	Addresses []string `json:"addresses"`
+
+	Bridge *NetlinkInterfaceBridgeStatus `json:"bridge,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
