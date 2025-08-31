@@ -969,7 +969,8 @@ func (r *BridgeReconciler) gatherAllUpdates() bool {
 		len(r.shouldAddAddrs) > 0 ||
 		len(r.shouldRemoveAddrs) > 0 ||
 		len(r.shouldAddEnslavedLinks) > 0 ||
-		len(r.shouldRemoveEnslavedLinks) > 0
+		len(r.shouldRemoveEnslavedLinks) > 0 ||
+		r.shouldCreateInterface
 }
 
 func (r *BridgeReconciler) DetectChanges(ctx context.Context, desiredState interface{}) (bool, error) {
@@ -1075,10 +1076,6 @@ func (r *BridgeReconciler) ApplyReconcile(ctx context.Context, desiredState inte
 		}
 
 		link, _ := handle.LinkByName(r.interfaceName)
-		if _, err := reconcileMTU(handle, link, r.shouldUpdateMTU, false); err != nil {
-			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
-		}
-
 		if _, err := reconcileMTU(handle, link, r.shouldUpdateMTU, false); err != nil {
 			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
 		}
