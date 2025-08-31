@@ -341,24 +341,54 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return nil
 	}
 
+	reconcilerFactoryMap := make(map[string]ReconcilerFactory)
+	reconcilerFactoryMap[string(networkingv1alpha1.NetlinkInterfaceTypeDummy)] = func() (Reconciler, error) {
+		return NewDummyReconciler(nlObj.Spec.InterfaceName, pid)
+	}
+	reconcilerFactoryMap[string(networkingv1alpha1.NetlinkInterfaceTypeBridge)] = func() (Reconciler, error) {
+		return NewBridgeReconciler(nlObj.Spec.InterfaceName, pid)
+	}
+
 	needReconcile := nlObj.GetGeneration() != nlObj.Status.ObservedGeneration
 	if needReconcile {
 		logger.Info("Need to reconcile", "objectReference", klog.KObj(nlObj), "observedGeneration", nlObj.Status.ObservedGeneration, "generation", nlObj.GetGeneration())
 
-		switch nlObj.Spec.Type {
-		case networkingv1alpha1.NetlinkInterfaceTypeDummy:
-			_, err := c.reconcileDummyNetlinkInterface(ctx, nlObj, false)
+		reconcilerFactory, ok := reconcilerFactoryMap[string(nlObj.Spec.Type)]
+		if !ok {
+			return fmt.Errorf("unsupported NetlinkInterface type: %s", nlObj.Spec.Type)
+		}
+
+		reconciler, err := reconcilerFactory()
+		if err != nil {
+			return fmt.Errorf("failed to create reconciler: %s", err.Error())
+		}
+
+		var hasUpdates bool
+		hasUpdates, err = reconciler.DetectChanges(ctx, nlObj.Spec)
+		if err != nil {
+			return fmt.Errorf("failed to detect changes: %s", err.Error())
+		}
+		maxLoops := 10
+		for hasUpdates && maxLoops > 0 {
+			err = reconciler.ApplyReconcile(ctx, nlObj.Spec)
 			if err != nil {
-				return fmt.Errorf("failed to reconcile Dummy NetlinkInterface: %s", err.Error())
+				return fmt.Errorf("failed to apply reconcile: %s", err.Error())
 			}
-		case networkingv1alpha1.NetlinkInterfaceTypeBridge:
-			_, err := c.reconcileBridgeNetlinkInterface(ctx, nlObj, false)
+
+			reconciler.ResetState()
+			hasUpdates, err = reconciler.DetectChanges(ctx, nlObj.Spec)
 			if err != nil {
-				return fmt.Errorf("failed to reconcile Bridge NetlinkInterface: %s", err.Error())
+				break
 			}
-		// todo: add more types support here
-		default:
-			panic("unsupported NetlinkInterface type: " + nlObj.Spec.Type)
+			if !hasUpdates {
+				// It's converged here, no more reconciliation is needed
+				break
+			}
+
+			maxLoops--
+		}
+		if err != nil {
+			return fmt.Errorf("failed to reconcile NetlinkInterface: %s of type %s: %s", nlObj.Spec.InterfaceName, nlObj.Spec.Type, err.Error())
 		}
 
 		logger.Info("Updating NetlinkInterface status", "objectReference", klog.KObj(nlObj))
@@ -370,170 +400,6 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	}
 
 	return nil
-}
-
-type reconcileResult struct {
-	updated bool
-}
-
-// Returns: (updated, error)
-func (c *Controller) reconcileBridgeNetlinkInterface(ctx context.Context, nlObj *networkingv1alpha1.NetlinkInterface, dryRun bool) (bool, error) {
-	logger := klog.FromContext(ctx)
-
-	logger.Info("Reconciling Bridge NetlinkInterface", "objectReference", klog.KObj(nlObj))
-
-	pid, err := c.getInterfacePid(nlObj.Spec.Container)
-
-	if err != nil {
-		return false, fmt.Errorf("failed to get interface pid: %s", err.Error())
-	}
-
-	rcResult := new(reconcileResult)
-
-	err = pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
-		_, err := handle.LinkByName(nlObj.Spec.InterfaceName)
-		if err != nil {
-			if _, ok := err.(netlink.LinkNotFoundError); !ok {
-				return fmt.Errorf("failed to get link %s: %s", nlObj.Spec.InterfaceName, err.Error())
-			}
-
-			rcResult.updated = true
-			if dryRun {
-				return nil
-			}
-
-			link := new(netlink.Bridge)
-			link.Attrs().Name = nlObj.Spec.InterfaceName
-			if err := handle.LinkAdd(link); err != nil {
-				return fmt.Errorf("failed to add link %s: %s", nlObj.Spec.InterfaceName, err.Error())
-			}
-
-			return nil
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return rcResult.updated, fmt.Errorf("failed to reconcile Bridge NetlinkInterface: %s", err.Error())
-	}
-
-	if dryRun && rcResult.updated {
-		return true, nil
-	}
-
-	err = pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
-		link, _ := handle.LinkByName(nlObj.Spec.InterfaceName)
-		updated, err := reconcileMTU(handle, link, nlObj.Spec.MTU, dryRun)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile mtu of link %s: %s", nlObj.Spec.InterfaceName, err.Error())
-		}
-
-		rcResult.updated = rcResult.updated || updated
-
-		updated, err = reconcileAddrs(handle, link, nlObj.Spec.Addresses, dryRun)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile addresses of link %s: %s", nlObj.Spec.InterfaceName, err.Error())
-		}
-
-		rcResult.updated = rcResult.updated || updated
-
-		updated, err = reconcileAdminState(ctx, handle, link, nlObj.Spec.Up, dryRun)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile admin state of link %s: %s", nlObj.Spec.InterfaceName, err.Error())
-		}
-
-		rcResult.updated = rcResult.updated || updated
-
-		bridgeSpec := nlObj.Spec.Bridge
-		if bridgeSpec != nil {
-			updated, err = reconcileEnslavedLinks(handle, link, bridgeSpec.Slaves, dryRun)
-			if err != nil {
-				return fmt.Errorf("failed to reconcile enslaved links of link %s: %s", nlObj.Spec.InterfaceName, err.Error())
-			}
-
-			rcResult.updated = rcResult.updated || updated
-		}
-
-		return nil
-	})
-
-	return rcResult.updated, err
-}
-
-// Returns: (updated, error)
-func (c *Controller) reconcileDummyNetlinkInterface(ctx context.Context, nlObj *networkingv1alpha1.NetlinkInterface, dryRun bool) (bool, error) {
-	logger := klog.FromContext(ctx)
-
-	logger.Info("Reconciling Dummy NetlinkInterface", "objectReference", klog.KObj(nlObj), "dryRun", dryRun)
-
-	pid, err := c.getInterfacePid(nlObj.Spec.Container)
-	if err != nil {
-		return false, fmt.Errorf("failed to get interface pid: %s", err.Error())
-	}
-
-	rcResult := new(reconcileResult)
-
-	err = pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
-		_, err := handle.LinkByName(nlObj.Spec.InterfaceName)
-		if err != nil {
-			if _, ok := err.(netlink.LinkNotFoundError); !ok {
-				return fmt.Errorf("failed to get link %s: %s", nlObj.Spec.InterfaceName, err.Error())
-			}
-
-			rcResult.updated = true
-			if dryRun {
-				return nil
-			}
-
-			link := new(netlink.Dummy)
-			link.Attrs().Name = nlObj.Spec.InterfaceName
-			if err := handle.LinkAdd(link); err != nil {
-				return fmt.Errorf("failed to add link %s: %s", nlObj.Spec.InterfaceName, err.Error())
-			}
-
-			return nil
-		}
-
-		return nil
-	})
-
-	if dryRun && rcResult.updated {
-		return true, nil
-	}
-
-	if err != nil {
-		return rcResult.updated, fmt.Errorf("failed to reconcile Dummy NetlinkInterface: %s", err.Error())
-	}
-
-	// Reconciliation of dummy interface is rather easy,
-	// only have to check the MTU, addresses and administrative state (Up/Down).
-	err = pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
-		link, _ := handle.LinkByName(nlObj.Spec.InterfaceName)
-
-		updated, err := reconcileMTU(handle, link, nlObj.Spec.MTU, dryRun)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile mtu of link %s: %s", nlObj.Spec.InterfaceName, err.Error())
-		}
-
-		rcResult.updated = rcResult.updated || updated
-
-		updated, err = reconcileAddrs(handle, link, nlObj.Spec.Addresses, dryRun)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile addresses of link %s: %s", nlObj.Spec.InterfaceName, err.Error())
-		}
-		rcResult.updated = rcResult.updated || updated
-
-		updated, err = reconcileAdminState(ctx, handle, link, nlObj.Spec.Up, dryRun)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile admin state of link %s: %s", nlObj.Spec.InterfaceName, err.Error())
-		}
-		rcResult.updated = rcResult.updated || updated
-
-		return nil
-	})
-
-	return rcResult.updated, err
 }
 
 // updateWireGuardNetworkPlanStatus updates the status of a WireGuardNetworkPlan with current information
@@ -781,32 +647,33 @@ func reconcileMTU(handle *netlink.Handle, link netlink.Link, mtu *int, dryRun bo
 }
 
 // Returns: (updated, error)
-func reconcileAddrs(handle *netlink.Handle, link netlink.Link, addrs []networkingv1alpha1.NetlinkInterfaceAddressSpec, dryRun bool) (bool, error) {
+func reconcileAddrs(handle *netlink.Handle, link netlink.Link, addrs []networkingv1alpha1.NetlinkInterfaceAddressSpec, dryRun bool) (bool, *NetlinkAddrDifferenceSet, error) {
 	hasUpdated := false
+	var diffSet *NetlinkAddrDifferenceSet
 
 	if addrs != nil {
 		nlAddrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
 		if err != nil {
-			return false, fmt.Errorf("failed to get addresses: %s", err.Error())
+			return false, diffSet, fmt.Errorf("failed to get addresses: %s", err.Error())
 		}
 
-		diffSet, err := getReconciliationPlan(addrs, nlAddrs)
+		diffSet, err = getReconciliationPlan(addrs, nlAddrs)
 		if err != nil {
-			return false, fmt.Errorf("failed to calculate the difference between the spec and the current netlink interface's addresses: %s", err.Error())
+			return false, nil, fmt.Errorf("failed to calculate the difference between the spec and the current netlink interface's addresses: %s", err.Error())
 		}
 
 		hasUpdated = len(diffSet.Added) > 0 || len(diffSet.Removed) > 0
 
 		if dryRun {
-			return hasUpdated, nil
+			return hasUpdated, diffSet, nil
 		}
 
 		if err := applyReconciliationPlan(handle, link, diffSet); err != nil {
-			return true, fmt.Errorf("failed to apply the reconciliation plan: %s", err.Error())
+			return true, nil, fmt.Errorf("failed to apply the reconciliation plan: %s", err.Error())
 		}
 	}
 
-	return hasUpdated, nil
+	return hasUpdated, diffSet, nil
 }
 
 // Returns: (updated, error)
@@ -846,11 +713,18 @@ func reconcileAdminState(ctx context.Context, handle *netlink.Handle, link netli
 	return false, nil
 }
 
+type EnslavedLinksDifferenceSet struct {
+	Added   map[string]netlink.Link
+	Removed map[string]netlink.Link
+}
+
 // Returns: (updated, error)
-func reconcileEnslavedLinks(handle *netlink.Handle, master netlink.Link, slaves []string, dryRun bool) (bool, error) {
+func reconcileEnslavedLinks(handle *netlink.Handle, master netlink.Link, slaves []string, dryRun bool) (bool, *EnslavedLinksDifferenceSet, error) {
+	diffSet := new(EnslavedLinksDifferenceSet)
+
 	allNLLinks, err := handle.LinkList()
 	if err != nil {
-		return false, fmt.Errorf("failed to get all netlink links: %s", err.Error())
+		return false, nil, fmt.Errorf("failed to get all netlink links: %s", err.Error())
 	}
 
 	enslavedNLLinks := make(map[string]netlink.Link)
@@ -870,7 +744,7 @@ func reconcileEnslavedLinks(handle *netlink.Handle, master netlink.Link, slaves 
 		if _, ok := enslavedNLLinks[ifname]; !ok {
 			newslave, err := handle.LinkByName(ifname)
 			if err != nil {
-				return false, fmt.Errorf("failed to get link %s: %s", ifname, err.Error())
+				return false, nil, fmt.Errorf("failed to get link %s: %s", ifname, err.Error())
 			}
 			addedEnslavedLinks[ifname] = newslave
 		}
@@ -886,9 +760,11 @@ func reconcileEnslavedLinks(handle *netlink.Handle, master netlink.Link, slaves 
 	}
 
 	updated := len(addedEnslavedLinks) > 0 || len(removedEnslavedLinks) > 0
+	diffSet.Added = addedEnslavedLinks
+	diffSet.Removed = removedEnslavedLinks
 
 	if dryRun {
-		return updated, nil
+		return updated, diffSet, nil
 	}
 
 	// Now, worked out these two sets, we are going to
@@ -896,15 +772,341 @@ func reconcileEnslavedLinks(handle *netlink.Handle, master netlink.Link, slaves 
 	// and enslave all the interfaces in the 'addedEnslavedLinks' set
 	for _, lk := range addedEnslavedLinks {
 		if err := handle.LinkSetMaster(lk, master); err != nil {
-			return true, fmt.Errorf("failed to enslave link %s to bridge %s: %s", lk.Attrs().Name, master.Attrs().Name, err.Error())
+			return true, nil, fmt.Errorf("failed to enslave link %s to bridge %s: %s", lk.Attrs().Name, master.Attrs().Name, err.Error())
 		}
 	}
 
 	for _, lk := range removedEnslavedLinks {
 		if err := handle.LinkSetNoMaster(lk); err != nil {
-			return true, fmt.Errorf("failed to un-enslave link %s from bridge %s: %s", lk.Attrs().Name, master.Attrs().Name, err.Error())
+			return true, nil, fmt.Errorf("failed to un-enslave link %s from bridge %s: %s", lk.Attrs().Name, master.Attrs().Name, err.Error())
 		}
 	}
 
-	return updated, nil
+	return updated, diffSet, nil
 }
+
+// Reconciler interface, its primary purpose is to decouple the
+// detection of changes from the act of applying changes
+type Reconciler interface {
+	// DetectChanges is used to detect changes from the spec,
+	// It should be guaranteed to not actually alter the underlying system state.
+	// Returns: (hasUpdates, error)
+	DetectChanges(ctx context.Context, desiredState interface{}) (bool, error)
+
+	// ApplyReconcile is used to apply the changes to the underlying system state,
+	// It acts based on the result of DetectChanges, which are store in the internal state of the reconciler.
+	ApplyReconcile(ctx context.Context, desiredState interface{}) error
+
+	// ResetState is used to reset the state of the reconciler,
+	// it resets the internal state of the reconciler to the initial state.
+	ResetState()
+}
+
+// A DummyReconciler implements the Reconciler interface
+type DummyReconciler struct {
+	interfaceName          string
+	pid                    *int
+	shouldCreateInterface  bool
+	shouldRemoveAddrs      map[string]*netlink.Addr
+	shouldAddAddrs         map[string]*networkingv1alpha1.NetlinkInterfaceAddressSpec
+	shouldUpdateMTU        *int
+	shouldUpdateAdminState *bool
+}
+
+func NewDummyReconciler(interfaceName string, pid *int) (*DummyReconciler, error) {
+	dummyReconciler := new(DummyReconciler)
+	dummyReconciler.interfaceName = interfaceName
+	dummyReconciler.pid = pid
+	return dummyReconciler, nil
+}
+
+func (r *DummyReconciler) gatherAllUpdates() bool {
+	return r.shouldCreateInterface ||
+		len(r.shouldRemoveAddrs) > 0 ||
+		len(r.shouldAddAddrs) > 0 ||
+		r.shouldUpdateMTU != nil ||
+		r.shouldUpdateAdminState != nil
+}
+
+// Returns: (hasUpdates, error)
+func (r *DummyReconciler) DetectChanges(ctx context.Context, desiredState interface{}) (bool, error) {
+	dummySpec, ok := desiredState.(*networkingv1alpha1.NetlinkInterfaceSpec)
+	if !ok {
+		return false, fmt.Errorf("desired state is not a *networkingv1alpha1.NetlinkInterfaceSpec")
+	}
+
+	err := pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
+		_, err := handle.LinkByName(r.interfaceName)
+		if err != nil {
+			if _, ok := err.(netlink.LinkNotFoundError); !ok {
+				return fmt.Errorf("failed to get link %s: %s", r.interfaceName, err.Error())
+			}
+
+			r.shouldCreateInterface = true
+		}
+		return nil
+	})
+
+	if err != nil {
+		return r.gatherAllUpdates(), err
+	}
+
+	err = pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
+		link, err := handle.LinkByName(r.interfaceName)
+		if err != nil {
+			if _, ok := err.(netlink.LinkNotFoundError); !ok {
+				return fmt.Errorf("failed to get link %s: %s", r.interfaceName, err.Error())
+			}
+
+			return nil
+		}
+
+		updated, err := reconcileMTU(handle, link, dummySpec.MTU, true)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if updated {
+			mtu := *dummySpec.MTU
+			r.shouldUpdateMTU = &mtu
+		}
+
+		updated, diffSet, err := reconcileAddrs(handle, link, dummySpec.Addresses, true)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if updated {
+			r.shouldRemoveAddrs = diffSet.Removed
+			r.shouldAddAddrs = diffSet.Added
+		}
+
+		updated, err = reconcileAdminState(ctx, handle, link, dummySpec.Up, true)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if updated {
+			desiredAdminState := dummySpec.Up
+			r.shouldUpdateAdminState = &desiredAdminState
+		}
+
+		return nil
+	})
+
+	return r.gatherAllUpdates(), err
+}
+
+// Returns: (converged, error)
+func (r *DummyReconciler) ApplyReconcile(ctx context.Context, desiredState interface{}) error {
+	dummySpec, ok := desiredState.(*networkingv1alpha1.NetlinkInterfaceSpec)
+	if !ok {
+		return fmt.Errorf("desired state is not a *networkingv1alpha1.NetlinkInterfaceSpec")
+	}
+
+	return pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
+		if r.shouldCreateInterface {
+			link := new(netlink.Dummy)
+			if err := handle.LinkSetName(link, r.interfaceName); err != nil {
+				return fmt.Errorf("failed to set name of link %s: %s", r.interfaceName, err.Error())
+			}
+
+			if err := handle.LinkAdd(link); err != nil {
+				return fmt.Errorf("failed to add link %s: %s", r.interfaceName, err.Error())
+			}
+
+			// one should run `DetectChanges` again after `ApplyReconcile` until it's converged.
+			return nil
+		}
+
+		link, _ := handle.LinkByName(r.interfaceName)
+		if _, err := reconcileMTU(handle, link, r.shouldUpdateMTU, false); err != nil {
+			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if _, _, err := reconcileAddrs(handle, link, dummySpec.Addresses, false); err != nil {
+			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if _, err := reconcileAdminState(ctx, handle, link, dummySpec.Up, false); err != nil {
+			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		return nil
+	})
+}
+
+func (r *DummyReconciler) ResetState() {
+	r.shouldCreateInterface = false
+	r.shouldRemoveAddrs = nil
+	r.shouldAddAddrs = nil
+	r.shouldUpdateMTU = nil
+	r.shouldUpdateAdminState = nil
+}
+
+type BridgeReconciler struct {
+	interfaceName             string
+	pid                       *int
+	shouldUpdateMTU           *int
+	shouldUpdateAdminState    *bool
+	shouldAddAddrs            map[string]*networkingv1alpha1.NetlinkInterfaceAddressSpec
+	shouldRemoveAddrs         map[string]*netlink.Addr
+	shouldAddEnslavedLinks    map[string]netlink.Link
+	shouldRemoveEnslavedLinks map[string]netlink.Link
+	shouldCreateInterface     bool
+}
+
+func NewBridgeReconciler(interfaceName string, pid *int) (*BridgeReconciler, error) {
+	bridgeReconciler := new(BridgeReconciler)
+	bridgeReconciler.interfaceName = interfaceName
+	bridgeReconciler.pid = pid
+	return bridgeReconciler, nil
+}
+
+func (r *BridgeReconciler) gatherAllUpdates() bool {
+	return r.shouldUpdateMTU != nil ||
+		r.shouldUpdateAdminState != nil ||
+		len(r.shouldAddAddrs) > 0 ||
+		len(r.shouldRemoveAddrs) > 0 ||
+		len(r.shouldAddEnslavedLinks) > 0 ||
+		len(r.shouldRemoveEnslavedLinks) > 0
+}
+
+func (r *BridgeReconciler) DetectChanges(ctx context.Context, desiredState interface{}) (bool, error) {
+	bridgeSpec, ok := desiredState.(*networkingv1alpha1.NetlinkInterfaceSpec)
+	if !ok {
+		return false, fmt.Errorf("desired state is not a *networkingv1alpha1.NetlinkInterfaceSpec")
+	}
+
+	err := pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
+		_, err := handle.LinkByName(r.interfaceName)
+		if err != nil {
+			if _, ok := err.(netlink.LinkNotFoundError); !ok {
+				return fmt.Errorf("failed to get link %s: %s", r.interfaceName, err.Error())
+			}
+
+			r.shouldCreateInterface = true
+		}
+		return nil
+	})
+
+	if err != nil {
+		return r.gatherAllUpdates(), err
+	}
+
+	err = pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
+		link, err := handle.LinkByName(r.interfaceName)
+		if err != nil {
+			if _, ok := err.(netlink.LinkNotFoundError); !ok {
+				return fmt.Errorf("failed to get link %s: %s", r.interfaceName, err.Error())
+			}
+
+			return nil
+		}
+
+		updated, err := reconcileMTU(handle, link, bridgeSpec.MTU, true)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if updated {
+			mtu := *bridgeSpec.MTU
+			r.shouldUpdateMTU = &mtu
+		}
+
+		updated, diffSet, err := reconcileAddrs(handle, link, bridgeSpec.Addresses, true)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if updated {
+			r.shouldRemoveAddrs = diffSet.Removed
+			r.shouldAddAddrs = diffSet.Added
+		}
+
+		updated, err = reconcileAdminState(ctx, handle, link, bridgeSpec.Up, true)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if updated {
+			desiredAdminState := bridgeSpec.Up
+			r.shouldUpdateAdminState = &desiredAdminState
+		}
+
+		if bridgeSpec.Bridge != nil {
+			updated, diffSet, err := reconcileEnslavedLinks(handle, link, bridgeSpec.Bridge.Slaves, true)
+			if err != nil {
+				return fmt.Errorf("failed to reconcile enslaved links of link %s: %s", r.interfaceName, err.Error())
+			}
+
+			if updated {
+				r.shouldAddEnslavedLinks = diffSet.Added
+				r.shouldRemoveEnslavedLinks = diffSet.Removed
+			}
+
+		}
+
+		return nil
+	})
+
+	return r.gatherAllUpdates(), err
+}
+
+func (r *BridgeReconciler) ApplyReconcile(ctx context.Context, desiredState interface{}) error {
+	bridgeSpec, ok := desiredState.(*networkingv1alpha1.NetlinkInterfaceSpec)
+	if !ok {
+		return fmt.Errorf("desired state is not a *networkingv1alpha1.NetlinkInterfaceSpec")
+	}
+
+	return pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
+		if r.shouldCreateInterface {
+			link := new(netlink.Dummy)
+			if err := handle.LinkSetName(link, r.interfaceName); err != nil {
+				return fmt.Errorf("failed to set name of link %s: %s", r.interfaceName, err.Error())
+			}
+
+			if err := handle.LinkAdd(link); err != nil {
+				return fmt.Errorf("failed to add link %s: %s", r.interfaceName, err.Error())
+			}
+
+			// one should run `DetectChanges` again after `ApplyReconcile` until it's converged.
+			return nil
+		}
+
+		link, _ := handle.LinkByName(r.interfaceName)
+		if _, err := reconcileMTU(handle, link, r.shouldUpdateMTU, false); err != nil {
+			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if _, err := reconcileMTU(handle, link, r.shouldUpdateMTU, false); err != nil {
+			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if _, _, err := reconcileAddrs(handle, link, bridgeSpec.Addresses, false); err != nil {
+			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if _, err := reconcileAdminState(ctx, handle, link, bridgeSpec.Up, false); err != nil {
+			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		if _, _, err := reconcileEnslavedLinks(handle, link, bridgeSpec.Bridge.Slaves, false); err != nil {
+			return fmt.Errorf("failed to reconcile enslaved links of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		return nil
+	})
+}
+
+func (r *BridgeReconciler) ResetState() {
+	r.shouldUpdateMTU = nil
+	r.shouldUpdateAdminState = nil
+	r.shouldAddAddrs = nil
+	r.shouldRemoveAddrs = nil
+	r.shouldAddEnslavedLinks = nil
+	r.shouldRemoveEnslavedLinks = nil
+	r.shouldCreateInterface = false
+}
+
+type ReconcilerFactory = func() (Reconciler, error)
