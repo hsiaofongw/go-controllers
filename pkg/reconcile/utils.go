@@ -30,13 +30,6 @@ func reconcileMTU(handle *netlink.Handle, link netlink.Link, mtu *int, dryRun bo
 	return hasUpdated, nil
 }
 
-func getAddrSpecKey(addrSpec *networkingv1alpha1.NetlinkInterfaceAddressSpec) string {
-	if addrSpec.PeerCIDR != nil {
-		return fmt.Sprintf("%s -> %s", addrSpec.IPCIDR, *addrSpec.PeerCIDR)
-	}
-	return addrSpec.IPCIDR
-}
-
 func getNlAddrKey(addr *netlink.Addr) string {
 	if addr == nil {
 		return ""
@@ -44,10 +37,10 @@ func getNlAddrKey(addr *netlink.Addr) string {
 	return pkgutils.AddrToString(*addr)
 }
 
-func getReconciliationPlan(addrSpecs []networkingv1alpha1.NetlinkInterfaceAddressSpec, nlAddrs []netlink.Addr) (*NetlinkAddrDifferenceSet, error) {
-	lhsSet := make(map[string]*networkingv1alpha1.NetlinkInterfaceAddressSpec)
+func getAddrReconciliationPlan(addrSpecs []netlink.Addr, nlAddrs []netlink.Addr) (*NetlinkAddrDifferenceSet, error) {
+	lhsSet := make(map[string]*netlink.Addr)
 	for _, addrSpec := range addrSpecs {
-		lhsSet[getAddrSpecKey(&addrSpec)] = &addrSpec
+		lhsSet[getNlAddrKey(&addrSpec)] = &addrSpec
 	}
 
 	rhsSet := make(map[string]*netlink.Addr)
@@ -55,7 +48,7 @@ func getReconciliationPlan(addrSpecs []networkingv1alpha1.NetlinkInterfaceAddres
 		rhsSet[getNlAddrKey(&addr)] = &addr
 	}
 
-	addedSet := make(map[string]*networkingv1alpha1.NetlinkInterfaceAddressSpec)
+	addedSet := make(map[string]*netlink.Addr)
 	for k, v := range lhsSet {
 		if _, ok := rhsSet[k]; !ok {
 			addedSet[k] = v
@@ -75,75 +68,43 @@ func getReconciliationPlan(addrSpecs []networkingv1alpha1.NetlinkInterfaceAddres
 	return result, nil
 }
 
-func toNetlinkAddr(addrSpec *networkingv1alpha1.NetlinkInterfaceAddressSpec) (*netlink.Addr, error) {
-	if addrSpec.PeerCIDR == nil {
-		addrObj, err := netlink.ParseAddr(addrSpec.IPCIDR)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse ipcidr %s: %s", addrSpec.IPCIDR, err.Error())
-		}
-		return addrObj, nil
-	}
-
-	_, peeripnet, err := net.ParseCIDR(*addrSpec.PeerCIDR)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse peerCidr %s: %s", *addrSpec.PeerCIDR, err.Error())
-	}
-
-	localIp := net.ParseIP(addrSpec.IPCIDR)
-	if localIp == nil {
-		return nil, fmt.Errorf("failed to parse ipcidr %s", addrSpec.IPCIDR)
-	}
-
-	addrObj := new(netlink.Addr)
-	addrObj.IPNet = new(net.IPNet)
-	addrObj.IP = localIp
-	addrObj.Peer = peeripnet
-	return addrObj, nil
-}
-
-func applyReconciliationPlan(handle *netlink.Handle, link netlink.Link, diffSet *NetlinkAddrDifferenceSet) error {
+func applyAddrReconciliationPlan(handle *netlink.Handle, link netlink.Link, diffSet *NetlinkAddrDifferenceSet) error {
 	for _, staleAddrPtr := range diffSet.Removed {
 		if err := handle.AddrDel(link, staleAddrPtr); err != nil {
 			return fmt.Errorf("failed to remove address %s: %s", staleAddrPtr.String(), err.Error())
 		}
 	}
 	for _, newAddrSpecPtr := range diffSet.Added {
-		addrObj, err := toNetlinkAddr(newAddrSpecPtr)
-		if err != nil {
-			return fmt.Errorf("failed to convert address spec %s to netlink address: %s", newAddrSpecPtr.IPCIDR, err.Error())
-		}
-		if err := handle.AddrAdd(link, addrObj); err != nil {
-			return fmt.Errorf("failed to add address %s: %s", addrObj.String(), err.Error())
+		if err := handle.AddrAdd(link, newAddrSpecPtr); err != nil {
+			return fmt.Errorf("failed to add address %s: %s", newAddrSpecPtr.String(), err.Error())
 		}
 	}
 	return nil
 }
 
 // Returns: (updated, error)
-func reconcileAddrs(handle *netlink.Handle, link netlink.Link, addrs []networkingv1alpha1.NetlinkInterfaceAddressSpec, dryRun bool) (bool, *NetlinkAddrDifferenceSet, error) {
+func reconcileAddrs(handle *netlink.Handle, link netlink.Link, specAddrs []netlink.Addr, dryRun bool) (bool, *NetlinkAddrDifferenceSet, error) {
 	hasUpdated := false
 	var diffSet *NetlinkAddrDifferenceSet
 
-	if addrs != nil {
-		nlAddrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
-		if err != nil {
-			return false, diffSet, fmt.Errorf("failed to get addresses: %s", err.Error())
-		}
+	nlAddrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
+	if err != nil {
+		return false, diffSet, fmt.Errorf("failed to get addresses: %s", err.Error())
+	}
 
-		diffSet, err = getReconciliationPlan(addrs, nlAddrs)
-		if err != nil {
-			return false, nil, fmt.Errorf("failed to calculate the difference between the spec and the current netlink interface's addresses: %s", err.Error())
-		}
+	diffSet, err = getAddrReconciliationPlan(specAddrs, nlAddrs)
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to calculate the difference between the spec and the current netlink interface's addresses: %s", err.Error())
+	}
 
-		hasUpdated = len(diffSet.Added) > 0 || len(diffSet.Removed) > 0
+	hasUpdated = len(diffSet.Added) > 0 || len(diffSet.Removed) > 0
 
-		if dryRun {
-			return hasUpdated, diffSet, nil
-		}
+	if dryRun {
+		return hasUpdated, diffSet, nil
+	}
 
-		if err := applyReconciliationPlan(handle, link, diffSet); err != nil {
-			return true, nil, fmt.Errorf("failed to apply the reconciliation plan: %s", err.Error())
-		}
+	if err := applyAddrReconciliationPlan(handle, link, diffSet); err != nil {
+		return true, nil, fmt.Errorf("failed to apply the reconciliation plan: %s", err.Error())
 	}
 
 	return hasUpdated, diffSet, nil
@@ -244,4 +205,42 @@ func reconcileEnslavedLinks(handle *netlink.Handle, master netlink.Link, slaves 
 	}
 
 	return updated, diffSet, nil
+}
+
+func toNetlinkAddr(addrSpec *networkingv1alpha1.NetlinkInterfaceAddressSpec) (*netlink.Addr, error) {
+	if addrSpec.PeerCIDR == nil {
+		addrObj, err := netlink.ParseAddr(addrSpec.IPCIDR)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse ipcidr %s: %s", addrSpec.IPCIDR, err.Error())
+		}
+		return addrObj, nil
+	}
+
+	_, peeripnet, err := net.ParseCIDR(*addrSpec.PeerCIDR)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse peerCidr %s: %s", *addrSpec.PeerCIDR, err.Error())
+	}
+
+	localIp := net.ParseIP(addrSpec.IPCIDR)
+	if localIp == nil {
+		return nil, fmt.Errorf("failed to parse ipcidr %s", addrSpec.IPCIDR)
+	}
+
+	addrObj := new(netlink.Addr)
+	addrObj.IPNet = new(net.IPNet)
+	addrObj.IP = localIp
+	addrObj.Peer = peeripnet
+	return addrObj, nil
+}
+
+func toNetlinkAddrList(addrSpecs []networkingv1alpha1.NetlinkInterfaceAddressSpec) ([]netlink.Addr, error) {
+	addrList := make([]netlink.Addr, 0)
+	for _, addrSpec := range addrSpecs {
+		addrObj, err := toNetlinkAddr(&addrSpec)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert address spec %s to netlink address: %s", addrSpec.IPCIDR, err.Error())
+		}
+		addrList = append(addrList, *addrObj)
+	}
+	return addrList, nil
 }

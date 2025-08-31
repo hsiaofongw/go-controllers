@@ -204,7 +204,7 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	}
 
 	// Start the informer factories to begin populating the informer caches
-	logger.Info("Starting controller", "hostname", hostname)
+	logger.Info("Starting controller", "hostname", hostname, "nodeName", c.nodeName)
 
 	// Wait for the caches to be synced before starting workers
 	logger.Info("Waiting for informer caches to sync")
@@ -377,7 +377,6 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 				break
 			}
 			if !hasUpdates {
-				// It's converged here, no more reconciliation is needed
 				break
 			}
 
@@ -385,6 +384,8 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		}
 		if err != nil {
 			return fmt.Errorf("failed to reconcile NetlinkInterface: %s of type %s: %s", nlObj.Spec.InterfaceName, nlObj.Spec.Type, err.Error())
+		} else if maxLoops == 0 {
+			return fmt.Errorf("failed to reconcile NetlinkInterface: %s of type %s: %s", nlObj.Spec.InterfaceName, nlObj.Spec.Type, "max loops reached")
 		}
 
 		logger.Info("Updating NetlinkInterface status", "objectReference", klog.KObj(nlObj))

@@ -15,7 +15,7 @@ type DummyReconciler struct {
 	pid                    *int
 	shouldCreateInterface  bool
 	shouldRemoveAddrs      map[string]*netlink.Addr
-	shouldAddAddrs         map[string]*networkingv1alpha1.NetlinkInterfaceAddressSpec
+	shouldAddAddrs         map[string]*netlink.Addr
 	shouldUpdateMTU        *int
 	shouldUpdateAdminState *bool
 }
@@ -78,7 +78,12 @@ func (r *DummyReconciler) DetectChanges(ctx context.Context, desiredState interf
 			r.shouldUpdateMTU = &mtu
 		}
 
-		updated, diffSet, err := reconcileAddrs(handle, link, dummySpec.Addresses, true)
+		specAddrs, err := toNetlinkAddrList(dummySpec.Addresses)
+		if err != nil {
+			return fmt.Errorf("failed to convert address specs to netlink addresses: %s", err.Error())
+		}
+
+		updated, diffSet, err := reconcileAddrs(handle, link, specAddrs, true)
 		if err != nil {
 			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
 		}
@@ -131,7 +136,12 @@ func (r *DummyReconciler) ApplyReconcile(ctx context.Context, desiredState inter
 			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
 		}
 
-		if _, _, err := reconcileAddrs(handle, link, dummySpec.Addresses, false); err != nil {
+		specAddrs, err := toNetlinkAddrList(dummySpec.Addresses)
+		if err != nil {
+			return fmt.Errorf("failed to convert address specs to netlink addresses: %s", err.Error())
+		}
+
+		if _, _, err := reconcileAddrs(handle, link, specAddrs, false); err != nil {
 			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
 		}
 

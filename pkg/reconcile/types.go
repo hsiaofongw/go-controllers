@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/vishvananda/netlink"
-	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 )
 
 // Reconciler interface, its primary purpose is to decouple the
@@ -34,7 +33,7 @@ type EnslavedLinksDifferenceSet struct {
 type NetlinkAddrDifferenceSet struct {
 	// the 'Added' addresses are those present in the spec but not in the current netlink interface's addresses list
 	// Once should always ignore the key and treat it as the opaque.
-	Added map[string]*networkingv1alpha1.NetlinkInterfaceAddressSpec
+	Added map[string]*netlink.Addr
 
 	// the 'Removed' addresses are those present in the current netlink interface but not in the spec.
 	// Once should always ignore the key and treat it as the opaque.
