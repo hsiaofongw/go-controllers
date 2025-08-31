@@ -1,0 +1,21 @@
+apiVersion: networking.dn42.io/v1alpha1
+kind: NetlinkInterface
+metadata:
+  name: lax1-nl2-bridge
+  finalizers:
+    - netlinkinterface.networking.dn42.io/finalizer
+spec:
+  node: lax1
+  interfaceName: nl2-bridge
+  type: bridge
+  bridge:
+    slaves: []
+  addresses:
+    - ipcidr: "10.2.4.0/24"
+    - ipcidr: "10.100.3.1"
+      peerCidr: "10.100.4.1/32"
+  mtu: 1420
+  up: true
+  container:
+    docker:
+      name: agent1
