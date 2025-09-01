@@ -602,32 +602,6 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	return nil
 }
 
-// updateWireGuardInterfaceStatus updates the status of a WireGuard interface with current information
-func (c *Controller) updateStatusObservedGeneration(ctx context.Context, wgObj *networkingv1alpha1.WireGuardInterface) error {
-	logger := klog.FromContext(ctx)
-
-	// NEVER modify objects from the store. It's a read-only, local cache.
-	// You can use DeepCopy() to make a deep copy of original object and modify this copy
-	wgObjCopy := wgObj.DeepCopy()
-
-	latestWgObj, err := c.wgLister.Get(wgObj.Name)
-	if err != nil {
-		return fmt.Errorf("failed to get latest WireGuardInterface: %s", err.Error())
-	}
-
-	// Track the `generation` field at that moment as well (hence the name "observedGeneration")
-	wgObjCopy.Status.ObservedGeneration = latestWgObj.GetGeneration()
-
-	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
-
-	if err != nil {
-		return fmt.Errorf("failed to update status: %s", err.Error())
-	}
-
-	logger.V(4).Info("Updated WireGuard interface status", "interfaceName", wgObj.Spec.InterfaceName)
-	return nil
-}
-
 // getCurrentWireGuardStatus retrieves the current status of a WireGuard interface
 func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPid *int) (*networkingv1alpha1.WireGuardInterfaceStatus, error) {
 
