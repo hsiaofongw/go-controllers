@@ -2,14 +2,17 @@ package reconcile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net"
+	"os"
 	"sort"
 
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	pkgutils "k8s.io/sample-controller/pkg/utils"
 )
 
@@ -41,11 +44,58 @@ func NewWGReconciler(interfaceName string, pid *int) (*WGReconciler, error) {
 	return &WGReconciler{interfaceName: interfaceName, pid: pid}, nil
 }
 
+func (r *WGReconciler) setStatus(status *networkingv1alpha1.WireGuardInterfaceStatus) error {
+	netlinkHook := func(handle *netlink.Handle, wgLink netlink.Link) error {
+		mtu := wgLink.Attrs().MTU
+		status.MTU = &mtu
+
+		addrObjs, err := handle.AddrList(wgLink, netlink.FAMILY_ALL)
+		if err != nil {
+			return fmt.Errorf("failed to get addresses: %s", err.Error())
+		}
+
+		status.Netlink = networkingv1alpha1.NewFromNetlinkLinkAttrs(wgLink.Attrs(), addrObjs)
+
+		return nil
+	}
+
+	wgHook := func(wgCtrlCli *wgctrl.Client) error {
+		device, err := wgCtrlCli.Device(r.interfaceName)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("device %s does not exist: %s", r.interfaceName, err.Error())
+			}
+			return fmt.Errorf("failed to get device: %s", err.Error())
+		}
+		status.WireGuard = networkingv1alpha1.NewWireGuardStatusWrapper(device)
+		return nil
+	}
+
+	if err := pkgutils.WithNetnsWGCli(r.pid, wgHook); err != nil {
+		return fmt.Errorf("failed to get wg status: %s", err.Error())
+	}
+
+	return pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
+		link, err := handle.LinkByName(r.interfaceName)
+		if err != nil {
+			return fmt.Errorf("failed to get link by name: %s", err.Error())
+		}
+
+		return netlinkHook(handle, link)
+	})
+
+}
+
 func (r *WGReconciler) DetectChanges(ctx context.Context, desiredState interface{}, statusPtr interface{}) (bool, error) {
 
 	desiredConf, ok := desiredState.(*WGDesiredState)
 	if !ok {
 		return false, fmt.Errorf("desired state is not a *WGDesiredState")
+	}
+
+	var status *networkingv1alpha1.WireGuardInterfaceStatus
+	if v, ok := statusPtr.(*networkingv1alpha1.WireGuardInterfaceStatus); ok {
+		status = v
 	}
 
 	err := pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
@@ -57,6 +107,12 @@ func (r *WGReconciler) DetectChanges(ctx context.Context, desiredState interface
 
 			r.shouldCreateInterface = true
 			return nil
+		}
+
+		if status != nil {
+			if err := r.setStatus(status); err != nil {
+				return fmt.Errorf("failed to set status: %s", err.Error())
+			}
 		}
 
 		updated, diffSet, err := reconcileAddrs(handle, link, desiredConf.IPAddrs, true)

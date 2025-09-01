@@ -20,14 +20,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"os"
 	"time"
 
 	dockerUtil "example.com/go-util/pkg/util/docker"
-	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	dockerSDK "github.com/docker/docker/client"
@@ -465,15 +463,30 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 		return fmt.Errorf("failed to get interface pid: %s", err.Error())
 	}
 
-	// Get current WireGuard interface status
-	status, err := c.getCurrentWireGuardStatus(wgObj.Spec.InterfaceName, pid)
+	hostname, err := os.Hostname()
 	if err != nil {
-		logger.Error(err, "Failed to get current WireGuard status", "interfaceName", wgObj.Spec.InterfaceName)
-		// Don't fail the entire sync if status update fails
-		return nil
+		return fmt.Errorf("failed to get hostname: %s", err.Error())
 	}
 
-	status.ObservedGeneration = wgObj.GetGeneration()
+	status := &networkingv1alpha1.WireGuardInterfaceStatus{
+		MTU:      nil,
+		Hostname: hostname,
+		Nodename: c.nodename,
+	}
+
+	reconciler, err := pkgreconcile.NewWGReconciler(wgObjCopy.Spec.InterfaceName, pid)
+	if err != nil {
+		return fmt.Errorf("failed to create reconciler: %s", err.Error())
+	}
+
+	hasUpdates, err := reconciler.DetectChanges(ctx, &wgObjCopy.Spec, status)
+	if err != nil {
+		return fmt.Errorf("failed to detect changes: %s", err.Error())
+	}
+
+	if !hasUpdates {
+		status.ObservedGeneration = wgObj.GetGeneration()
+	}
 
 	// Update the status
 	wgObjCopy.Status = *status
@@ -487,65 +500,6 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 
 	logger.V(4).Info("Updated WireGuard interface status", "interfaceName", wgObj.Spec.InterfaceName)
 	return nil
-}
-
-// getCurrentWireGuardStatus retrieves the current status of a WireGuard interface
-func (c *Controller) getCurrentWireGuardStatus(interfaceName string, containerPid *int) (*networkingv1alpha1.WireGuardInterfaceStatus, error) {
-
-	hostname, err := os.Hostname()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get hostname: %s", err.Error())
-	}
-
-	status := &networkingv1alpha1.WireGuardInterfaceStatus{
-		MTU:      nil,
-		Hostname: hostname,
-		Nodename: c.nodename,
-	}
-
-	netlinkHook := func(handle *netlink.Handle, wgLink netlink.Link) error {
-		mtu := wgLink.Attrs().MTU
-		status.MTU = &mtu
-
-		addrObjs, err := handle.AddrList(wgLink, netlink.FAMILY_ALL)
-		if err != nil {
-			return fmt.Errorf("failed to get addresses: %s", err.Error())
-		}
-
-		status.Netlink = networkingv1alpha1.NewFromNetlinkLinkAttrs(wgLink.Attrs(), addrObjs)
-
-		return nil
-	}
-
-	wgHook := func(wgCtrlCli *wgctrl.Client) error {
-		device, err := wgCtrlCli.Device(interfaceName)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("device %s does not exist: %s", interfaceName, err.Error())
-			}
-			return fmt.Errorf("failed to get device: %s", err.Error())
-		}
-		status.WireGuard = networkingv1alpha1.NewWireGuardStatusWrapper(device)
-		return nil
-	}
-
-	if err := pkgutils.WithNetnsWGCli(containerPid, wgHook); err != nil {
-		return nil, fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
-	}
-
-	err = pkgutils.WithNetlinkHandle(containerPid, func(handle *netlink.Handle) error {
-		link, err := handle.LinkByName(interfaceName)
-		if err != nil {
-			return fmt.Errorf("failed to get link by name: %s", err.Error())
-		}
-
-		return netlinkHook(handle, link)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure/reconcile ip: %s", err.Error())
-	}
-
-	return status, nil
 }
 
 func (c *Controller) getSecretValue(ns *string, secName, key string) ([]byte, error) {
