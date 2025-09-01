@@ -26,10 +26,14 @@ type WGDesiredState struct {
 }
 
 type WGReconciler struct {
-	interfaceName         string
-	pid                   *int
-	shouldUpdateAddr      *NetlinkAddrDifferenceSet
-	shouldCreateInterface bool
+	interfaceName          string
+	pid                    *int
+	shouldUpdateAddr       *NetlinkAddrDifferenceSet
+	shouldCreateInterface  bool
+	shouldUpdateMTU        bool
+	shouldUpdateListenPort bool
+	shouldUpdatePrivateKey bool
+	shouldUpdateAdminState bool
 }
 
 func NewWGReconciler(interfaceName string, pid *int) *WGReconciler {
@@ -63,14 +67,48 @@ func (r *WGReconciler) DetectChanges(ctx context.Context, desiredState interface
 			r.shouldUpdateAddr = diffSet
 		}
 
-		return nil
+		updated, err = reconcileAdminState(ctx, handle, link, true, true)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
+		}
+		if updated {
+			r.shouldUpdateAdminState = true
+		}
+
+		updated, err = reconcileMTU(handle, link, desiredConf.MTU, true)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
+		}
+		if updated {
+			r.shouldUpdateMTU = true
+		}
+
+		err = pkgutils.WithNetnsWGCli(r.pid, func(wgCtrlCli *wgctrl.Client) error {
+			device, err := wgCtrlCli.Device(r.interfaceName)
+			if err != nil {
+				return fmt.Errorf("failed to get device %s: %s", r.interfaceName, err.Error())
+			}
+
+			if device.ListenPort != desiredConf.ListenPort {
+				r.shouldUpdateListenPort = true
+			}
+
+			if device.PrivateKey.String() != desiredConf.PrivateKey.String() {
+				r.shouldUpdatePrivateKey = true
+			}
+
+			// todo: reconcile peers
+
+			return nil
+		})
+
+		return err
 	})
 	if err != nil {
 		return false, err
 	}
 
-	// TODO: Implement
-	return false, nil
+	return r.gatherAllUpdates(), nil
 }
 
 func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interface{}) error {
@@ -146,7 +184,12 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 	return pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
 		link, _ := handle.LinkByName(r.interfaceName)
 
-		_, err := reconcileMTU(handle, link, desiredConf.MTU, false)
+		_, err := reconcileAdminState(ctx, handle, link, true, false)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
+		}
+
+		_, err = reconcileMTU(handle, link, desiredConf.MTU, false)
 		if err != nil {
 			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
 		}
@@ -167,4 +210,17 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 func (r *WGReconciler) ResetState() {
 	r.shouldCreateInterface = false
 	r.shouldUpdateAddr = nil
+	r.shouldUpdateMTU = false
+	r.shouldUpdateListenPort = false
+	r.shouldUpdatePrivateKey = false
+	r.shouldUpdateAdminState = false
+}
+
+func (r *WGReconciler) gatherAllUpdates() bool {
+	return r.shouldCreateInterface ||
+		r.shouldUpdateAddr != nil ||
+		r.shouldUpdateMTU ||
+		r.shouldUpdateListenPort ||
+		r.shouldUpdatePrivateKey ||
+		r.shouldUpdateAdminState
 }
