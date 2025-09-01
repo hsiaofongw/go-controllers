@@ -42,6 +42,11 @@ func (r *DummyReconciler) DetectChanges(ctx context.Context, desiredState interf
 		return false, fmt.Errorf("desired state is not a *networkingv1alpha1.NetlinkInterfaceSpec")
 	}
 
+	var status *networkingv1alpha1.NetlinkInterfaceStatus
+	if v, ok := statusPtr.(*networkingv1alpha1.NetlinkInterfaceStatus); ok {
+		status = v
+	}
+
 	err := pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
 		_, err := handle.LinkByName(r.interfaceName)
 		if err != nil {
@@ -66,6 +71,26 @@ func (r *DummyReconciler) DetectChanges(ctx context.Context, desiredState interf
 			}
 
 			return nil
+		}
+
+		if status != nil {
+			mtu := link.Attrs().MTU
+			status.MTU = &mtu
+
+			addrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
+			if err != nil {
+				return fmt.Errorf("failed to get addresses of link %s: %s", r.interfaceName, err.Error())
+			}
+			attrs := link.Attrs()
+			status.Netlink = networkingv1alpha1.NewFromNetlinkLinkAttrs(attrs, addrs)
+			status.OperState = attrs.OperState.String()
+			status.Flags = pkgutils.FlagsToStrings(link.Attrs().Flags)
+
+			addrsStrs := make([]string, 0)
+			for _, addr := range addrs {
+				addrsStrs = append(addrsStrs, pkgutils.AddrToString(addr))
+			}
+			status.Addresses = addrsStrs
 		}
 
 		updated, err := reconcileMTU(handle, link, dummySpec.MTU, true)
