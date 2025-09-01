@@ -3,6 +3,9 @@ package reconcile
 import (
 	"context"
 	"fmt"
+	"math"
+	"net"
+	"sort"
 
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/wgctrl"
@@ -15,10 +18,7 @@ type WGDesiredState struct {
 	IPAddrs []netlink.Addr
 	Peers   []wgtypes.PeerConfig
 
-	PrivateKey wgtypes.Key
-
-	// ListenPort must not be omitted, even when its behind a NAT.
-	ListenPort int
+	WGOuterConfig *wgtypes.Config
 
 	// If this is true, means that the wg interface is expected to be
 	// born in host netns then move to the container once created.
@@ -31,9 +31,10 @@ type WGReconciler struct {
 	shouldUpdateAddr       *NetlinkAddrDifferenceSet
 	shouldCreateInterface  bool
 	shouldUpdateMTU        bool
-	shouldUpdateListenPort bool
-	shouldUpdatePrivateKey bool
 	shouldUpdateAdminState bool
+
+	wgOuterConfigDiff *WGOuterConfigDiff
+	peersDiff         *PeersDiff
 }
 
 func NewWGReconciler(interfaceName string, pid *int) *WGReconciler {
@@ -89,15 +90,17 @@ func (r *WGReconciler) DetectChanges(ctx context.Context, desiredState interface
 				return fmt.Errorf("failed to get device %s: %s", r.interfaceName, err.Error())
 			}
 
-			if device.ListenPort != desiredConf.ListenPort {
-				r.shouldUpdateListenPort = true
+			wgOuterConfigDiff, err := reconcileWGOuterConfig(desiredConf.WGOuterConfig, device)
+			if err != nil {
+				return fmt.Errorf("failed to reconcile outer config of link %s: %s", r.interfaceName, err.Error())
 			}
+			r.wgOuterConfigDiff = wgOuterConfigDiff
 
-			if device.PrivateKey.String() != desiredConf.PrivateKey.String() {
-				r.shouldUpdatePrivateKey = true
+			peersDiff, err := reconcilePeers(desiredConf.Peers, device.Peers)
+			if err != nil {
+				return fmt.Errorf("failed to reconcile peers of link %s: %s", r.interfaceName, err.Error())
 			}
-
-			// todo: reconcile peers
+			r.peersDiff = peersDiff
 
 			return nil
 		})
@@ -135,9 +138,7 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 			}
 
 			err = pkgutils.WithNetnsWGCli(nil, func(wgCtrlCli *wgctrl.Client) error {
-				wgConf := new(wgtypes.Config)
-				wgConf.ListenPort = &desiredConf.ListenPort
-				wgConf.PrivateKey = &desiredConf.PrivateKey
+				wgConf := desiredConf.WGOuterConfig
 				err := wgCtrlCli.ConfigureDevice(r.interfaceName, *wgConf)
 				if err != nil {
 					return fmt.Errorf("failed to configure device %s: %s", r.interfaceName, err.Error())
@@ -199,7 +200,23 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
 		}
 
-		// todo: reconcile more
+		if r.wgOuterConfigDiff != nil {
+			err := pkgutils.WithNetnsWGCli(r.pid, func(wgCtrlCli *wgctrl.Client) error {
+				return applyWGOuterConfigDiff(r.wgOuterConfigDiff, wgCtrlCli, r.interfaceName)
+			})
+			if err != nil {
+				return fmt.Errorf("failed to apply outer config diff of link %s: %s", r.interfaceName, err.Error())
+			}
+		}
+
+		if r.peersDiff != nil {
+			err := pkgutils.WithNetnsWGCli(r.pid, func(wgCtrlCli *wgctrl.Client) error {
+				return applyPeersDiff(r.peersDiff, wgCtrlCli, r.interfaceName)
+			})
+			if err != nil {
+				return fmt.Errorf("failed to apply peers diff of link %s: %s", r.interfaceName, err.Error())
+			}
+		}
 
 		return nil
 
@@ -211,16 +228,247 @@ func (r *WGReconciler) ResetState() {
 	r.shouldCreateInterface = false
 	r.shouldUpdateAddr = nil
 	r.shouldUpdateMTU = false
-	r.shouldUpdateListenPort = false
-	r.shouldUpdatePrivateKey = false
 	r.shouldUpdateAdminState = false
+	r.peersDiff = nil
+	r.wgOuterConfigDiff = nil
 }
 
 func (r *WGReconciler) gatherAllUpdates() bool {
 	return r.shouldCreateInterface ||
 		r.shouldUpdateAddr != nil ||
 		r.shouldUpdateMTU ||
-		r.shouldUpdateListenPort ||
-		r.shouldUpdatePrivateKey ||
-		r.shouldUpdateAdminState
+		r.wgOuterConfigDiff != nil ||
+		r.shouldUpdateAdminState ||
+		r.peersDiff != nil
+}
+
+// return true if not equal
+func checkWGPeersDiff(lhs wgtypes.PeerConfig, rhs wgtypes.Peer) bool {
+	if lhs.PublicKey.String() != rhs.PublicKey.String() {
+		return true
+	}
+
+	if getKeyStr(lhs.PresharedKey) != getKeyStr(&rhs.PresharedKey) {
+		return true
+	}
+
+	if getEndpointStr(lhs.Endpoint) != getEndpointStr(rhs.Endpoint) {
+		return true
+	}
+
+	lhsAllowedIPs := make([]string, 0)
+	for _, ip := range lhs.AllowedIPs {
+		lhsAllowedIPs = append(lhsAllowedIPs, ip.String())
+	}
+	sort.Strings(lhsAllowedIPs)
+
+	rhsAllowedIPs := make([]string, 0)
+	for _, ip := range rhs.AllowedIPs {
+		rhsAllowedIPs = append(rhsAllowedIPs, ip.String())
+	}
+	sort.Strings(rhsAllowedIPs)
+
+	if len(lhsAllowedIPs) != len(rhsAllowedIPs) {
+		return true
+	}
+	for idx := range lhsAllowedIPs {
+		if lhsAllowedIPs[idx] != rhsAllowedIPs[idx] {
+			return true
+		}
+	}
+
+	if lhs.PersistentKeepaliveInterval != nil {
+		if math.Abs(lhs.PersistentKeepaliveInterval.Seconds()-rhs.PersistentKeepaliveInterval.Seconds()) >= 1.0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func getKeyStr(key *wgtypes.Key) string {
+	if key == nil {
+		k := wgtypes.Key{}
+		return k.String()
+	}
+
+	return key.String()
+}
+
+func getEndpointStr(endpoint *net.UDPAddr) string {
+	if endpoint == nil {
+		return ""
+	}
+	return endpoint.String()
+}
+
+type PeersDiff struct {
+	AddedPeers   map[string]*wgtypes.PeerConfig
+	RemovedPeers map[string]*wgtypes.Peer
+	UpdatedPeers map[string]*wgtypes.PeerConfig
+}
+
+func reconcilePeers(peerCfgs []wgtypes.PeerConfig, peers []wgtypes.Peer) (*PeersDiff, error) {
+	diff := new(PeersDiff)
+
+	allPeers := make(map[string]bool)
+	specPeers := make(map[string]*wgtypes.PeerConfig)
+	for _, peer := range peerCfgs {
+		specPeers[peer.PublicKey.String()] = &peer
+		allPeers[peer.PublicKey.String()] = true
+	}
+
+	currentPeers := make(map[string]*wgtypes.Peer)
+	for _, peer := range peers {
+		currentPeers[peer.PublicKey.String()] = &peer
+		allPeers[peer.PublicKey.String()] = true
+	}
+
+	addedPeers := make(map[string]*wgtypes.PeerConfig)
+	for k := range specPeers {
+		if _, ok := currentPeers[k]; !ok {
+			addedPeers[k] = specPeers[k]
+		}
+	}
+
+	removedPeers := make(map[string]*wgtypes.Peer)
+	for k := range currentPeers {
+		if _, ok := specPeers[k]; !ok {
+			removedPeers[k] = currentPeers[k]
+		}
+	}
+
+	commonPeers := make(map[string]bool)
+	for k := range allPeers {
+		if _, ok := addedPeers[k]; !ok {
+			if _, ok := removedPeers[k]; !ok {
+				commonPeers[k] = true
+			}
+		}
+	}
+
+	updatedPeers := make(map[string]*wgtypes.PeerConfig)
+	for k := range commonPeers {
+		if checkWGPeersDiff(*specPeers[k], *currentPeers[k]) {
+			updatedPeers[k] = specPeers[k]
+		}
+	}
+
+	diff.AddedPeers = addedPeers
+	diff.RemovedPeers = removedPeers
+	diff.UpdatedPeers = updatedPeers
+
+	if len(addedPeers)+len(removedPeers)+len(updatedPeers) > 0 {
+		return diff, nil
+	}
+
+	return nil, nil
+}
+
+func applyPeersDiff(diff *PeersDiff, wgCtrlCli *wgctrl.Client, intfName string) error {
+	if diff == nil {
+		return fmt.Errorf("applyPeersDiff invoked but peers diff is nil")
+	}
+
+	devStatus, err := wgCtrlCli.Device(intfName)
+	if err != nil {
+		return fmt.Errorf("failed to get device %s: %s", intfName, err.Error())
+	}
+
+	wgConf := new(wgtypes.Config)
+	wgConf.PrivateKey = &devStatus.PrivateKey
+	wgConf.ListenPort = &devStatus.ListenPort
+	wgConf.FirewallMark = &devStatus.FirewallMark
+	wgConf.ReplacePeers = false
+	peerConf := make([]wgtypes.PeerConfig, 0)
+
+	for _, peer := range diff.UpdatedPeers {
+		updatedConf := *peer
+		updatedConf.UpdateOnly = true
+		updatedConf.Remove = false
+		peerConf = append(peerConf, updatedConf)
+	}
+
+	for _, peer := range diff.RemovedPeers {
+		removePeerConf := wgtypes.PeerConfig{
+			PublicKey: peer.PublicKey,
+			Remove:    true,
+		}
+		peerConf = append(peerConf, removePeerConf)
+	}
+
+	wgConf.Peers = peerConf
+	err = wgCtrlCli.ConfigureDevice(intfName, *wgConf)
+	if err != nil {
+		return fmt.Errorf("failed to configure device %s: %s", intfName, err.Error())
+	}
+
+	peerConf = make([]wgtypes.PeerConfig, 0)
+	for _, peer := range diff.AddedPeers {
+		addedPeerConf := *peer
+		addedPeerConf.UpdateOnly = false
+		addedPeerConf.Remove = false
+		peerConf = append(peerConf, addedPeerConf)
+	}
+	wgConf.Peers = peerConf
+	err = wgCtrlCli.ConfigureDevice(intfName, *wgConf)
+	if err != nil {
+		return fmt.Errorf("failed to configure device %s: %s", intfName, err.Error())
+	}
+
+	return nil
+}
+
+type WGOuterConfigDiff struct {
+	PrivateKey   *wgtypes.Key
+	ListenPort   int
+	FirewallMark int
+}
+
+func reconcileWGOuterConfig(wgConf *wgtypes.Config, devStatus *wgtypes.Device) (*WGOuterConfigDiff, error) {
+	if wgConf == nil || devStatus == nil {
+		return nil, fmt.Errorf("reconcileWGOuterConfig invoked but wgConf or devStatus is nil")
+	}
+
+	diff := new(WGOuterConfigDiff)
+	updated := false
+
+	if devStatus.PrivateKey.String() != wgConf.PrivateKey.String() {
+		diff.PrivateKey = &devStatus.PrivateKey
+		updated = true
+	}
+
+	if devStatus.ListenPort != *wgConf.ListenPort {
+		diff.ListenPort = *wgConf.ListenPort
+		updated = true
+	}
+
+	if devStatus.FirewallMark != *wgConf.FirewallMark {
+		diff.FirewallMark = *wgConf.FirewallMark
+		updated = true
+	}
+
+	if updated {
+		return diff, nil
+	}
+
+	return nil, nil
+}
+
+func applyWGOuterConfigDiff(diff *WGOuterConfigDiff, wgCtrlCli *wgctrl.Client, intfName string) error {
+	if diff == nil {
+		return fmt.Errorf("applyWGOuterConfigDiff invoked but diff is nil")
+	}
+
+	wgConf := new(wgtypes.Config)
+	wgConf.PrivateKey = diff.PrivateKey
+	wgConf.ListenPort = &diff.ListenPort
+	wgConf.FirewallMark = &diff.FirewallMark
+	wgConf.ReplacePeers = false
+	err := wgCtrlCli.ConfigureDevice(intfName, *wgConf)
+	if err != nil {
+		return fmt.Errorf("failed to configure device %s: %s", intfName, err.Error())
+	}
+
+	return nil
 }
