@@ -18,15 +18,12 @@ package wg
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net"
 	"os"
-	"sort"
 	"time"
 
 	dockerUtil "example.com/go-util/pkg/util/docker"
@@ -59,6 +56,7 @@ import (
 	samplescheme "k8s.io/sample-controller/pkg/generated/clientset/versioned/scheme"
 	v1alpha1Informer "k8s.io/sample-controller/pkg/generated/informers/externalversions/networking/v1alpha1"
 	v1alpha1Lister "k8s.io/sample-controller/pkg/generated/listers/networking/v1alpha1"
+	pkgreconcile "k8s.io/sample-controller/pkg/reconcile"
 )
 
 const controllerAgentName = "sample-controller"
@@ -79,11 +77,9 @@ type Controller struct {
 
 	secretsLister secretlisters.SecretLister
 	wgLister      v1alpha1Lister.WireGuardInterfaceLister
-	wgPlanLister  v1alpha1Lister.WireGuardNetworkPlanLister
 
 	wgSynced      cache.InformerSynced
 	secretsSynced cache.InformerSynced
-	wgPlanSynced  cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -145,10 +141,8 @@ func NewController(
 		kubeclientset:   config.Kubeclientset,
 		sampleclientset: config.Sampleclientset,
 		wgLister:        config.WgInformer.Lister(),
-		wgPlanLister:    config.WgPlanInformer.Lister(),
 		secretsLister:   config.SecretsInformer.Lister(),
 		wgSynced:        config.WgInformer.Informer().HasSynced,
-		wgPlanSynced:    config.WgPlanInformer.Informer().HasSynced,
 		secretsSynced:   config.SecretsInformer.Informer().HasSynced,
 		workqueue:       workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:        recorder,
@@ -254,7 +248,6 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	if ok := cache.WaitForCacheSync(ctx.Done(),
 		c.wgSynced,
 		c.secretsSynced,
-		c.wgPlanSynced,
 	); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
@@ -410,147 +403,41 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	if needReconcile {
 		logger.Info("Need to reconcile", "objectReference", klog.KObj(wgObj), "observedGeneration", wgObj.Status.ObservedGeneration, "generation", wgObj.GetGeneration())
 
-		ipconfigurator := func(handle *netlink.Handle, wgLink netlink.Link) error {
-			nlConf, err := c.ToNetlinkConfig(wgObj)
-			if err != nil {
-				return fmt.Errorf("failed to convert WireGuardInterface to netlink config: %s", err.Error())
-			}
-
-			if wgLink.Attrs().MTU != nlConf.MTU {
-				if err := handle.LinkSetMTU(wgLink, nlConf.MTU); err != nil {
-					return fmt.Errorf("failed to set mtu: %s", err.Error())
-				}
-			}
-
-			currentAddrs, err := handle.AddrList(wgLink, netlink.FAMILY_ALL)
-			if err != nil {
-				return fmt.Errorf("failed to get current addresses: %s", err.Error())
-			}
-
-			diffSet, err := compareNetlinkAddrs(nlConf.Addrs, currentAddrs)
-			if err != nil {
-				return fmt.Errorf("failed to compare netlink addrs: %s", err.Error())
-			}
-
-			for _, addr := range diffSet.ShouldBeRemoved {
-				if err := handle.AddrDel(wgLink, addr); err != nil {
-					return fmt.Errorf("failed to delete address: %s", err.Error())
-				}
-			}
-
-			for _, addr := range diffSet.ShouldBeAdded {
-				if err := handle.AddrAdd(wgLink, addr); err != nil {
-					return fmt.Errorf("failed to add address: %s", err.Error())
-				}
-			}
-
-			return nil
-		}
-
-		wgconfigurator := func(wgCtrlCli *wgctrl.Client) error {
-			wgConf, err := c.ToWireGuardConf(&wgObj.Spec)
-			if err != nil {
-				return fmt.Errorf("failed to convert WireGuardInterface to config: %s", err.Error())
-			}
-
-			device, err := wgCtrlCli.Device(wgObj.Spec.InterfaceName)
-			if err != nil {
-				return fmt.Errorf("failed to get device: %s", err.Error())
-			}
-
-			isDiff := false
-
-			// part 1. compare outer wg config
-			if wgConf.ListenPort != nil {
-				if *wgConf.ListenPort != device.ListenPort {
-					isDiff = true
-				}
-			}
-
-			if wgConf.PrivateKey == nil {
-				return fmt.Errorf("private key is empty")
-			}
-
-			if wgConf.PrivateKey.PublicKey().String() != device.PublicKey.String() {
-				isDiff = true
-			}
-
-			// part 2. compare against each peer
-			if len(wgConf.Peers) != len(device.Peers) {
-				isDiff = true
-			} else {
-				isDiff = checkPeersDiff(wgConf.Peers, device.Peers)
-			}
-
-			if isDiff {
-				logger.Info("Configuring wg device", "interfaceName", wgObj.Spec.InterfaceName)
-				return wgCtrlCli.ConfigureDevice(wgObj.Spec.InterfaceName, *wgConf)
-			}
-
-			return nil
-		}
-
-		// create if not exist
-		err := pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
-			_, err := handle.LinkByName(wgObj.Spec.InterfaceName)
-			if err != nil {
-				if _, ok := err.(netlink.LinkNotFoundError); !ok {
-					return fmt.Errorf("failed to get link by name: %s", err.Error())
-				}
-
-				err := pkgutils.WithNetlinkHandle(nil, func(handle *netlink.Handle) error {
-					wgLink := new(netlink.Wireguard)
-					wgLink.Attrs().Name = wgObj.Spec.InterfaceName
-					if err := handle.LinkAdd(wgLink); err != nil {
-						return fmt.Errorf("failed to add link: %s", err.Error())
-					}
-
-					if wgObj.Spec.MoveToContainer {
-						// if the interface is desired to move to container once after created,
-						// just configure it's wg parameters before it goes into the container.
-						if err := pkgutils.WithNetnsWGCli(nil, wgconfigurator); err != nil {
-							return fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
-						}
-
-						if err := handle.LinkSetUp(wgLink); err != nil {
-							return fmt.Errorf("failed to set link up: %s", err.Error())
-						}
-					}
-
-					if pid != nil {
-						if err := handle.LinkSetNsPid(wgLink, *pid); err != nil {
-							return fmt.Errorf("failed to move link to ns: %s", err.Error())
-						}
-
-						if err := pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
-							link, _ := handle.LinkByName(wgObj.Spec.InterfaceName)
-							return handle.LinkSetUp(link)
-						}); err != nil {
-							return fmt.Errorf("failed to set link up: %s", err.Error())
-						}
-					}
-					return nil
-				})
-				if err != nil {
-					return fmt.Errorf("failed to create and configure wg: %s", err.Error())
-				}
-			}
-			return nil
-		})
+		reconciler, err := pkgreconcile.NewWGReconciler(wgObj.Spec.InterfaceName, pid)
 		if err != nil {
-			return fmt.Errorf("failed to get link by name for reconciliation: %s", err.Error())
+			return fmt.Errorf("failed to create reconciler: %s", err.Error())
 		}
 
-		if err := pkgutils.WithNetnsWGCli(pid, wgconfigurator); err != nil {
-			return fmt.Errorf("failed to configure/reconcile wg: %s", err.Error())
-		}
-
-		err = pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
-			link, _ := handle.LinkByName(wgObj.Spec.InterfaceName)
-			return ipconfigurator(handle, link)
-		})
+		hasUpdates, err := reconciler.DetectChanges(ctx, &wgObj.Spec, &wgObj.Status)
 		if err != nil {
-			return fmt.Errorf("failed to configure/reconcile ip: %s", err.Error())
+			return fmt.Errorf("failed to detect changes: %s", err.Error())
+		}
+		maxLoops := 10
+		desiredSpec, err := c.toWGDesiredConfig(&wgObj.Spec)
+		if err != nil {
+			return fmt.Errorf("failed to convert wireguard config: %s", err.Error())
+		}
+		for hasUpdates && maxLoops > 0 {
+
+			err = reconciler.ApplyReconcile(ctx, &wgObj.Spec)
+			if err != nil {
+				break
+			}
+
+			reconciler.ResetState()
+			hasUpdates, err = reconciler.DetectChanges(ctx, desiredSpec, nil)
+			if err != nil {
+				break
+			}
+
+			maxLoops--
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to apply reconcile: %s", err.Error())
+		}
+		if maxLoops == 0 {
+			return fmt.Errorf("failed to apply reconcile: %s", "out of max loops")
 		}
 
 		logger.Info("Updating WireGuardInterface status", "objectReference", klog.KObj(wgObj))
@@ -731,7 +618,7 @@ func (c *Controller) getInterfacePid(wgObjSpec *networkingv1alpha1.WireGuardInte
 	return nil, fmt.Errorf("no container is specified")
 }
 
-func (c *Controller) ToWireGuardConf(wgi *networkingv1alpha1.WireGuardInterfaceSpec) (*wgtypes.Config, error) {
+func (c *Controller) toWireGuardConf(wgi *networkingv1alpha1.WireGuardInterfaceSpec) (*wgtypes.Config, error) {
 	privateKey := ""
 	if wgi.PrivateKey != "" {
 		privateKey = wgi.PrivateKey
@@ -759,7 +646,7 @@ func (c *Controller) ToWireGuardConf(wgi *networkingv1alpha1.WireGuardInterfaceS
 
 	peerConfigs := make([]wgtypes.PeerConfig, 0)
 	for _, peer := range wgi.Peers {
-		peerConf, err := c.ToZX2c4WGPeerConf(&peer)
+		peerConf, err := c.toZX2c4WGPeerConf(&peer)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert peer spec to wg peer conf: %s", err.Error())
 		}
@@ -772,7 +659,7 @@ func (c *Controller) ToWireGuardConf(wgi *networkingv1alpha1.WireGuardInterfaceS
 	return wgConf, nil
 }
 
-func (c *Controller) ToZX2c4WGPeerConf(peerSpec *networkingv1alpha1.WireGuardPeerSpec) (*wgtypes.PeerConfig, error) {
+func (c *Controller) toZX2c4WGPeerConf(peerSpec *networkingv1alpha1.WireGuardPeerSpec) (*wgtypes.PeerConfig, error) {
 	wgPeerConf := new(wgtypes.PeerConfig)
 	if peerSpec.PublicKey == "" {
 		return nil, fmt.Errorf("public key is required")
@@ -824,32 +711,40 @@ func (c *Controller) ToZX2c4WGPeerConf(peerSpec *networkingv1alpha1.WireGuardPee
 	return wgPeerConf, nil
 }
 
-type netlinkConfig struct {
-	Addrs []*netlink.Addr
-	MTU   int
-}
-
-func (c *Controller) ToNetlinkConfig(wgObj *networkingv1alpha1.WireGuardInterface) (*netlinkConfig, error) {
-	netlinkConf := new(netlinkConfig)
-
-	if wgObj.Spec.MTU != nil && *wgObj.Spec.MTU != 0 {
-		netlinkConf.MTU = *wgObj.Spec.MTU
+func (c *Controller) toWGDesiredConfig(wgObjSpec *networkingv1alpha1.WireGuardInterfaceSpec) (*pkgreconcile.WGDesiredState, error) {
+	desiredState := new(pkgreconcile.WGDesiredState)
+	desiredState.MTU = wgObjSpec.MTU
+	defaultMTU := 1420
+	if desiredState.MTU == nil {
+		desiredState.MTU = &defaultMTU
+	}
+	if *desiredState.MTU == 0 {
+		desiredState.MTU = &defaultMTU
 	}
 
-	if wgObj.Spec.Addresses != nil {
-		for _, addrSpec := range wgObj.Spec.Addresses {
-			addrObj, err := c.MakeNetlinkAddrObject(&addrSpec)
-			if err != nil {
-				return nil, fmt.Errorf("failed to make netlink addr object: %s", err.Error())
-			}
-			netlinkConf.Addrs = append(netlinkConf.Addrs, addrObj)
+	netlinkIPAddrs := make([]netlink.Addr, 0)
+
+	for _, addrSpec := range wgObjSpec.Addresses {
+		addrObj, err := c.makeNetlinkAddrObject(&addrSpec)
+		if err != nil {
+			return nil, fmt.Errorf("failed to make netlink addr object: %s", err.Error())
 		}
+		netlinkIPAddrs = append(netlinkIPAddrs, *addrObj)
 	}
 
-	return netlinkConf, nil
+	wgConf, err := c.toWireGuardConf(wgObjSpec)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert wireguard config: %s", err.Error())
+	}
+	desiredState.WGOuterConfig = wgConf
+	desiredState.MoveToContainer = wgObjSpec.MoveToContainer
+	desiredState.Peers = wgConf.Peers
+
+	desiredState.IPAddrs = netlinkIPAddrs
+	return desiredState, nil
 }
 
-func (c *Controller) MakeNetlinkAddrObject(addrSpec *networkingv1alpha1.WireGuardInterfaceAddressSpec) (*netlink.Addr, error) {
+func (c *Controller) makeNetlinkAddrObject(addrSpec *networkingv1alpha1.WireGuardInterfaceAddressSpec) (*netlink.Addr, error) {
 	family := addrSpec.Family
 	local := addrSpec.Local
 	peer := addrSpec.Peer
@@ -871,159 +766,4 @@ func (c *Controller) MakeNetlinkAddrObject(addrSpec *networkingv1alpha1.WireGuar
 	addrObj.Peer.Mask = net.CIDRMask(prefixlen, bits)
 
 	return addrObj, nil
-}
-
-type NetlinkAddrDiff struct {
-	ShouldBeAdded   []*netlink.Addr
-	ShouldBeRemoved []*netlink.Addr
-}
-
-type NLAddrHandler struct {
-	nlAddr *netlink.Addr
-}
-
-func NewNLAddrHandler(nlAddr *netlink.Addr) *NLAddrHandler {
-	return &NLAddrHandler{nlAddr: nlAddr}
-}
-
-func (h *NLAddrHandler) GetHash(other *netlink.Addr) string {
-	// Two critical fields are compared here:
-	// 1. local IP
-	// 2. Peer IP (if there is)
-	// Anything else is not considered.
-
-	hashes := make([]byte, 0)
-
-	iphash := sha256.Sum256([]byte(h.nlAddr.String()))
-	hashes = append(hashes, iphash[:]...)
-
-	if h.nlAddr.Peer != nil {
-		peerHash := sha256.Sum256([]byte(h.nlAddr.Peer.String()))
-		hashes = append(hashes, peerHash[:]...)
-	}
-
-	hash := sha256.Sum256(hashes)
-	return fmt.Sprintf("%x", hash)
-}
-
-func compareNetlinkAddrs(desiredAddrs []*netlink.Addr, currentAddrs []netlink.Addr) (*NetlinkAddrDiff, error) {
-	lhsIdxMap := make(map[string]int)
-	for idx, addrPtr := range desiredAddrs {
-		nlAddrHandler := NewNLAddrHandler(addrPtr)
-		lhsIdxMap[nlAddrHandler.GetHash(addrPtr)] = idx
-	}
-
-	rhsIdxMap := make(map[string]int)
-	for idx, addr := range currentAddrs {
-		nlAddrHandler := NewNLAddrHandler(&addr)
-		hash := nlAddrHandler.GetHash(&addr)
-		rhsIdxMap[hash] = idx
-	}
-
-	freshSet := make([]*netlink.Addr, 0)
-	for hash, idx := range lhsIdxMap {
-		if _, ok := rhsIdxMap[hash]; !ok {
-			freshSet = append(freshSet, desiredAddrs[idx])
-		}
-	}
-
-	staleSet := make([]*netlink.Addr, 0)
-	for hash, idx := range rhsIdxMap {
-		if _, ok := lhsIdxMap[hash]; !ok {
-			staleSet = append(staleSet, &currentAddrs[idx])
-		}
-	}
-
-	result := new(NetlinkAddrDiff)
-	result.ShouldBeAdded = freshSet
-	result.ShouldBeRemoved = staleSet
-
-	return result, nil
-}
-
-func getKeyStr(key *wgtypes.Key) string {
-	if key == nil {
-		k := wgtypes.Key{}
-		return k.String()
-	}
-
-	return key.String()
-}
-
-func getEndpointStr(endpoint *net.UDPAddr) string {
-	if endpoint == nil {
-		return ""
-	}
-	return endpoint.String()
-}
-
-// return true if not equal
-func checkWGPeersDiff(lhs wgtypes.PeerConfig, rhs wgtypes.Peer) bool {
-	if lhs.PublicKey.String() != rhs.PublicKey.String() {
-		return true
-	}
-
-	if getKeyStr(lhs.PresharedKey) != getKeyStr(&rhs.PresharedKey) {
-		return true
-	}
-
-	if getEndpointStr(lhs.Endpoint) != getEndpointStr(rhs.Endpoint) {
-		return true
-	}
-
-	lhsAllowedIPs := make([]string, 0)
-	for _, ip := range lhs.AllowedIPs {
-		lhsAllowedIPs = append(lhsAllowedIPs, ip.String())
-	}
-	sort.Strings(lhsAllowedIPs)
-
-	rhsAllowedIPs := make([]string, 0)
-	for _, ip := range rhs.AllowedIPs {
-		rhsAllowedIPs = append(rhsAllowedIPs, ip.String())
-	}
-	sort.Strings(rhsAllowedIPs)
-
-	if len(lhsAllowedIPs) != len(rhsAllowedIPs) {
-		return true
-	}
-	for idx := range lhsAllowedIPs {
-		if lhsAllowedIPs[idx] != rhsAllowedIPs[idx] {
-			return true
-		}
-	}
-
-	if lhs.PersistentKeepaliveInterval != nil {
-		if math.Abs(lhs.PersistentKeepaliveInterval.Seconds()-rhs.PersistentKeepaliveInterval.Seconds()) >= 1.0 {
-			return true
-		}
-	}
-
-	return false
-}
-
-func checkPeersDiff(lhs []wgtypes.PeerConfig, rhs []wgtypes.Peer) bool {
-	if len(lhs) != len(rhs) {
-		panic("length of lhs and rhs are not equal")
-	}
-
-	lhsClone := make([]wgtypes.PeerConfig, 0)
-	lhsClone = append(lhsClone, lhs...)
-
-	rhsClone := make([]wgtypes.Peer, 0)
-	rhsClone = append(rhsClone, rhs...)
-
-	sort.Slice(lhsClone, func(i, j int) bool {
-		return lhsClone[i].PublicKey.String() < lhsClone[j].PublicKey.String()
-	})
-
-	sort.Slice(rhsClone, func(i, j int) bool {
-		return rhsClone[i].PublicKey.String() < rhsClone[j].PublicKey.String()
-	})
-
-	for idx := range lhsClone {
-		if isDiff := checkWGPeersDiff(lhsClone[idx], rhsClone[idx]); isDiff {
-			return true
-		}
-	}
-	return false
 }

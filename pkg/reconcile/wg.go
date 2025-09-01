@@ -37,8 +37,8 @@ type WGReconciler struct {
 	peersDiff         *PeersDiff
 }
 
-func NewWGReconciler(interfaceName string, pid *int) *WGReconciler {
-	return &WGReconciler{interfaceName: interfaceName, pid: pid}
+func NewWGReconciler(interfaceName string, pid *int) (*WGReconciler, error) {
+	return &WGReconciler{interfaceName: interfaceName, pid: pid}, nil
 }
 
 func (r *WGReconciler) DetectChanges(ctx context.Context, desiredState interface{}, statusPtr interface{}) (bool, error) {
