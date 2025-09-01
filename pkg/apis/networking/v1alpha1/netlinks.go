@@ -153,13 +153,14 @@ type NetlinkInterfaceStatus struct {
 	// OperState, see https://docs.kernel.org/networking/operstates.html
 	// This represents the operational state of the interface.
 	// Operational state is all about how it currently looks like.
-	OperState string `json:"operState"`
+	// +optional
+	OperState string `json:"operState,omitempty"`
 
 	// Flags, these represent the administrative state of the interface.
 	// Administrative state is all about what you want it to be.
-	Flags []string `json:"flags"`
+	Flags []string `json:"flags,omitempty"`
 
-	Addresses []string `json:"addresses"`
+	Addresses []string `json:"addresses,omitempty"`
 
 	Bridge *NetlinkInterfaceBridgeStatus `json:"bridge,omitempty"`
 }

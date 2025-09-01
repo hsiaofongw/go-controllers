@@ -223,6 +223,15 @@ spec:
                 items:
                   type: string
                 type: array
+              bridge:
+                properties:
+                  enslavedLinks:
+                    items:
+                      type: string
+                    type: array
+                required:
+                - enslavedLinks
+                type: object
               flags:
                 description: |-
                   Flags, these represent the administrative state of the interface.
@@ -335,12 +344,9 @@ spec:
                   Operational state is all about how it currently looks like.
                 type: string
             required:
-            - addresses
-            - flags
             - hostname
             - nodename
             - observedGeneration
-            - operState
             type: object
         required:
         - metadata

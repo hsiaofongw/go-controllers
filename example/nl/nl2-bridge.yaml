@@ -9,7 +9,9 @@ spec:
   interfaceName: nl2-bridge
   type: bridge
   bridge:
-    slaves: []
+    slaves:
+      - v1
+      - v2
   addresses:
     - ipcidr: "10.2.4.0/24"
     - ipcidr: "10.100.3.1"

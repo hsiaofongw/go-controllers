@@ -360,19 +360,19 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		}
 
 		var hasUpdates bool
-		hasUpdates, err = reconciler.DetectChanges(ctx, nlObj.Spec, nil)
+		hasUpdates, err = reconciler.DetectChanges(ctx, &nlObj.Spec, nil)
 		if err != nil {
 			return fmt.Errorf("failed to detect changes: %s", err.Error())
 		}
 		maxLoops := 10
 		for hasUpdates && maxLoops > 0 {
-			err = reconciler.ApplyReconcile(ctx, nlObj.Spec)
+			err = reconciler.ApplyReconcile(ctx, &nlObj.Spec)
 			if err != nil {
 				return fmt.Errorf("failed to apply reconcile: %s", err.Error())
 			}
 
 			reconciler.ResetState()
-			hasUpdates, err = reconciler.DetectChanges(ctx, nlObj.Spec, nil)
+			hasUpdates, err = reconciler.DetectChanges(ctx, &nlObj.Spec, nil)
 			if err != nil {
 				break
 			}
@@ -459,7 +459,7 @@ func (c *Controller) getCurrentNetlinkInterfaceStatus(ctx context.Context, nlObj
 		return nil, fmt.Errorf("failed to create reconciler: %s", err.Error())
 	}
 
-	hasUpdates, err := reconciler.DetectChanges(ctx, nlObj.Spec, status)
+	hasUpdates, err := reconciler.DetectChanges(ctx, &nlObj.Spec, status)
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect changes: %s", err.Error())
 	}
