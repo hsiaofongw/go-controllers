@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
 	"os"
 	"sort"
 
@@ -177,7 +176,6 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 	}
 
 	if r.shouldCreateInterface {
-		fmt.Println("Creating interface")
 		if desiredConf.MoveToContainer {
 			// First, create it in the host netns
 			err := pkgutils.WithNetlinkHandle(nil, func(handle *netlink.Handle) error {
@@ -229,7 +227,6 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 		link, _ := handle.LinkByName(r.interfaceName)
 
 		if r.shouldUpdateAdminState {
-			fmt.Println("Reconciling admin state")
 			_, err := reconcileAdminState(ctx, handle, link, true, false)
 			if err != nil {
 				return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
@@ -237,7 +234,6 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 		}
 
 		if r.shouldUpdateMTU {
-			fmt.Println("Reconciling mtu")
 			_, err := reconcileMTU(handle, link, desiredConf.MTU, false)
 			if err != nil {
 				return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
@@ -245,7 +241,6 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 		}
 
 		if r.shouldUpdateAddr {
-			fmt.Println("Reconciling addresses")
 			_, _, err := reconcileAddrs(handle, link, desiredConf.IPAddrs, false)
 			if err != nil {
 				return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
@@ -253,7 +248,6 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 		}
 
 		if r.wgOuterConfigDiff != nil {
-			fmt.Println("Reconciling outer config")
 			err := pkgutils.WithNetnsWGCli(r.pid, func(wgCtrlCli *wgctrl.Client) error {
 				return applyWGOuterConfigDiff(r.wgOuterConfigDiff, wgCtrlCli, r.interfaceName)
 			})
@@ -263,7 +257,6 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 		}
 
 		if r.peersDiff != nil {
-			fmt.Println("Reconciling peers")
 			err := pkgutils.WithNetnsWGCli(r.pid, func(wgCtrlCli *wgctrl.Client) error {
 				return applyPeersDiff(r.peersDiff, wgCtrlCli, r.interfaceName)
 			})
@@ -299,20 +292,17 @@ func (r *WGReconciler) gatherAllUpdates() bool {
 // return true if not equal
 func checkWGPeersDiff(lhs wgtypes.PeerConfig, rhs wgtypes.Peer) bool {
 	if lhs.PublicKey.String() != rhs.PublicKey.String() {
-		fmt.Println("Public key mismatch")
 		return true
 	}
 
 	if lhs.PresharedKey != nil {
 		if lhs.PresharedKey.String() != rhs.PresharedKey.String() {
-			fmt.Println("Preshared key mismatch")
 			return true
 		}
 	}
 
 	if lhs.Endpoint != nil {
 		if rhs.Endpoint != nil && lhs.Endpoint.String() != rhs.Endpoint.String() {
-			fmt.Println("Endpoint mismatch")
 			return true
 		}
 	}
@@ -330,40 +320,21 @@ func checkWGPeersDiff(lhs wgtypes.PeerConfig, rhs wgtypes.Peer) bool {
 	sort.Strings(rhsAllowedIPs)
 
 	if len(lhsAllowedIPs) != len(rhsAllowedIPs) {
-		fmt.Println("Allowed IPs mismatch")
 		return true
 	}
 	for idx := range lhsAllowedIPs {
 		if lhsAllowedIPs[idx] != rhsAllowedIPs[idx] {
-			fmt.Println("Allowed IPs mismatch")
 			return true
 		}
 	}
 
 	if lhs.PersistentKeepaliveInterval != nil {
 		if math.Abs(lhs.PersistentKeepaliveInterval.Seconds()-rhs.PersistentKeepaliveInterval.Seconds()) >= 1.0 {
-			fmt.Println("Persistent keepalive interval mismatch")
 			return true
 		}
 	}
 
 	return false
-}
-
-func getKeyStr(key *wgtypes.Key) string {
-	if key == nil {
-		k := wgtypes.Key{}
-		return k.String()
-	}
-
-	return key.String()
-}
-
-func getEndpointStr(endpoint *net.UDPAddr) string {
-	if endpoint == nil {
-		return ""
-	}
-	return endpoint.String()
 }
 
 type PeersDiff struct {
@@ -423,20 +394,6 @@ func reconcilePeers(peerCfgs []wgtypes.PeerConfig, peers []wgtypes.Peer) (*Peers
 	diff.UpdatedPeers = updatedPeers
 
 	if len(addedPeers)+len(removedPeers)+len(updatedPeers) > 0 {
-		fmt.Println("Added peers:")
-		for k := range addedPeers {
-			fmt.Println(k)
-		}
-
-		fmt.Println("Removed peers:")
-		for k := range removedPeers {
-			fmt.Println(k)
-		}
-
-		fmt.Println("Updated peers:")
-		for k := range updatedPeers {
-			fmt.Println(k)
-		}
 		return diff, nil
 	}
 
