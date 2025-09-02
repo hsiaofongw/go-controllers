@@ -43,6 +43,8 @@ After all dependencies are in place:
 
 ## Give It a Try:
 
+### Setting up WireGuard interfaces on nodes
+
 ```sh
 cd ./lab
 docker build -t agent:test . 
@@ -124,6 +126,20 @@ docker exec -it agent1 ping -c 3 fe80::a:1771%wg1
 # --- fe80::a:1771%wg1 ping statistics ---
 # 3 packets transmitted, 3 received, 0% packet loss, time 2066ms
 # rtt min/avg/max/mdev = 0.318/0.495/0.750/0.184 ms
+```
+
+### Setting up various netlink interfaces:
+
+Apply [./example/nl/nl1-dummy.yaml](./example/nl/nl1-dummy.yaml) to create a interface of type dummy in node lax1:
+
+```sh
+kubectl apply -f ./example/nl/nl1-dummy.yaml
+```
+
+Apply [./example/nl/nl2-bridge.yaml](./example/nl/nl2-bridge.yaml) to create a interface of type bridge in node lax1:
+
+```sh
+kubectl apply -f ./example/nl/nl2-bridge.yaml
 ```
 
 ## CRDs and Controller Design
