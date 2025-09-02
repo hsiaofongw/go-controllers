@@ -31,7 +31,7 @@ type WGDesiredState struct {
 type WGReconciler struct {
 	interfaceName          string
 	pid                    *int
-	shouldUpdateAddr       *NetlinkAddrDifferenceSet
+	shouldUpdateAddr       bool
 	shouldCreateInterface  bool
 	shouldUpdateMTU        bool
 	shouldUpdateAdminState bool
@@ -115,13 +115,13 @@ func (r *WGReconciler) DetectChanges(ctx context.Context, desiredState interface
 			}
 		}
 
-		updated, diffSet, err := reconcileAddrs(handle, link, desiredConf.IPAddrs, true)
+		updated, _, err := reconcileAddrs(handle, link, desiredConf.IPAddrs, true)
 		if err != nil {
 			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
 		}
 
 		if updated {
-			r.shouldUpdateAddr = diffSet
+			r.shouldUpdateAddr = updated
 		}
 
 		updated, err = reconcileAdminState(ctx, handle, link, true, true)
@@ -180,30 +180,19 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 		if desiredConf.MoveToContainer {
 			// First, create it in the host netns
 			err := pkgutils.WithNetlinkHandle(nil, func(handle *netlink.Handle) error {
-				wgLink := new(netlink.Wireguard)
-				err := handle.LinkAdd(wgLink)
-				if err != nil {
-					return fmt.Errorf("failed to add link %s: %s", r.interfaceName, err.Error())
-				}
-
-				return nil
+				return createWGLink(handle, r.interfaceName)
 			})
 
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to create link %s: %s", r.interfaceName, err.Error())
 			}
 
 			err = pkgutils.WithNetnsWGCli(nil, func(wgCtrlCli *wgctrl.Client) error {
-				wgConf := desiredConf.WGOuterConfig
-				err := wgCtrlCli.ConfigureDevice(r.interfaceName, *wgConf)
-				if err != nil {
-					return fmt.Errorf("failed to configure device %s: %s", r.interfaceName, err.Error())
-				}
-
-				return nil
+				return wgCtrlCli.ConfigureDevice(r.interfaceName, *desiredConf.WGOuterConfig)
 			})
+
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to configure device %s: %s", r.interfaceName, err.Error())
 			}
 
 			err = pkgutils.WithNetlinkHandle(nil, func(handle *netlink.Handle) error {
@@ -224,16 +213,13 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 			})
 
 			return err
-		} else {
-			return pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
-				wgLink := new(netlink.Wireguard)
-				err := handle.LinkSetName(wgLink, r.interfaceName)
-				if err != nil {
-					return fmt.Errorf("failed to set name of link %s: %s", r.interfaceName, err.Error())
-				}
+		}
 
-				return nil
-			})
+		err := pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
+			return createWGLink(handle, r.interfaceName)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create link %s: %s", r.interfaceName, err.Error())
 		}
 	}
 
@@ -241,19 +227,25 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 	return pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
 		link, _ := handle.LinkByName(r.interfaceName)
 
-		_, err := reconcileAdminState(ctx, handle, link, true, false)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
+		if r.shouldUpdateAdminState {
+			_, err := reconcileAdminState(ctx, handle, link, true, false)
+			if err != nil {
+				return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
+			}
 		}
 
-		_, err = reconcileMTU(handle, link, desiredConf.MTU, false)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
+		if r.shouldUpdateMTU {
+			_, err := reconcileMTU(handle, link, desiredConf.MTU, false)
+			if err != nil {
+				return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
+			}
 		}
 
-		_, _, err = reconcileAddrs(handle, link, desiredConf.IPAddrs, false)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
+		if r.shouldUpdateAddr {
+			_, _, err := reconcileAddrs(handle, link, desiredConf.IPAddrs, false)
+			if err != nil {
+				return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
+			}
 		}
 
 		if r.wgOuterConfigDiff != nil {
@@ -282,7 +274,7 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 
 func (r *WGReconciler) ResetState() {
 	r.shouldCreateInterface = false
-	r.shouldUpdateAddr = nil
+	r.shouldUpdateAddr = false
 	r.shouldUpdateMTU = false
 	r.shouldUpdateAdminState = false
 	r.peersDiff = nil
@@ -291,7 +283,7 @@ func (r *WGReconciler) ResetState() {
 
 func (r *WGReconciler) gatherAllUpdates() bool {
 	return r.shouldCreateInterface ||
-		r.shouldUpdateAddr != nil ||
+		r.shouldUpdateAddr ||
 		r.shouldUpdateMTU ||
 		r.wgOuterConfigDiff != nil ||
 		r.shouldUpdateAdminState ||
@@ -524,6 +516,21 @@ func applyWGOuterConfigDiff(diff *WGOuterConfigDiff, wgCtrlCli *wgctrl.Client, i
 	err := wgCtrlCli.ConfigureDevice(intfName, *wgConf)
 	if err != nil {
 		return fmt.Errorf("failed to configure device %s: %s", intfName, err.Error())
+	}
+
+	return nil
+}
+
+func createWGLink(handle *netlink.Handle, intfName string) error {
+	wgLink := new(netlink.Wireguard)
+	err := handle.LinkSetName(wgLink, intfName)
+	if err != nil {
+		return fmt.Errorf("failed to set name of link %s: %s", intfName, err.Error())
+	}
+
+	err = handle.LinkAdd(wgLink)
+	if err != nil {
+		return fmt.Errorf("failed to add link %s: %s", intfName, err.Error())
 	}
 
 	return nil

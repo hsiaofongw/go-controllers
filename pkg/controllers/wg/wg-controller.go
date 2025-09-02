@@ -339,12 +339,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	}
 
 	nodeName := wgObj.Spec.Node
-	host, err := c.getThisHostname()
-	if err != nil {
-		return fmt.Errorf("failed to get hostname: %s", err.Error())
-	}
-
-	if host != nodeName {
+	if c.nodename != nodeName {
 		logger.V(4).Info("This node is not responsible for this WireGuardInterface", "objectReference", objectRef)
 		return nil
 	}
@@ -527,20 +522,6 @@ func (c *Controller) getDockerContainerPid(containerName string) (int, error) {
 	}
 
 	return p, nil
-}
-
-func (c *Controller) getThisHostname() (string, error) {
-
-	if c.nodename != "" {
-		return c.nodename, nil
-	}
-
-	hostname, err := os.Hostname()
-	if err != nil {
-		return "", fmt.Errorf("failed to get hostname: %s", err.Error())
-	}
-
-	return hostname, nil
 }
 
 // if the interface should be placed in current namespace, return nil

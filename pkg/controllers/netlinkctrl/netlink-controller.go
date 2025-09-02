@@ -303,6 +303,12 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return err
 	}
 
+	nodeName := nlObj.Spec.Node
+	if c.nodeName != nodeName {
+		logger.V(4).Info("This node is not responsible for this WireGuardInterface", "objectReference", objectRef)
+		return nil
+	}
+
 	pid, err := c.getInterfacePid(nlObj.Spec.Container)
 	if err != nil {
 		return fmt.Errorf("failed to get interface pid: %s", err.Error())
