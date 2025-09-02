@@ -162,5 +162,5 @@ The networking controller system consists of three main components:
 ### Custom Resources
 - `WireGuardNetworkPlan`: Defines complete network topologies with nodes, links, and configurations. See [./pkg/apis/networking/v1alpha1/plan.go](./pkg/apis/networking/v1alpha1/plan.go).
 - `WireGuardInterface`: Defines desired WireGuard configurations on each node with granular control See [./pkg/apis/networking/v1alpha1/types.go](./pkg/apis/networking/v1alpha1/types.go).
-- `NetlinkInterface`: Defines desired configurations for various types of netlink interfaces (bridge, veth, dummy) on each node. See [](./pkg/apis/networking/v1alpha1/netlinks.go).
+- `NetlinkInterface`: Defines desired configurations for various types of netlink interfaces (bridge, veth, dummy) on each node. See [./pkg/apis/networking/v1alpha1/netlinks.go](./pkg/apis/networking/v1alpha1/netlinks.go).
 
