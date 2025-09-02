@@ -4,9 +4,9 @@
 
 ## Overview
 
-This is a Kubernetes-based WireGuard controller (operator). Its job is to ensure that the state of WireGuard interfaces in nodes is (most of the time) consistent with the desired state that you define. 
+This is a Kubernetes-based WireGuard controller (operator). Its job is to ensure that the state of WireGuard interfaces in nodes is consistent with the desired state that you define. 
 
-You define the desired state (i.e., your intention about how the system should be) by creating a `WireGuardNetworkPlan` resource object (see [./example/wgp/wgp1.yaml](./example/wgp/wgp1.yaml)) and posting it to the API server. The controllers will carry out your intention and converge the node's actual state to the desired state, all in a declarative manner.
+You define the desired state by creating a `WireGuardNetworkPlan` resource object (see [./example/wgp/wgp1.yaml](./example/wgp/wgp1.yaml)) and posting it to the API server. The controllers will carry out your intention and converge the node's actual state toward the desired state, all in a declarative manner.
 
 Alternatively, you can manually create a few `WireGuardInterface` resource objects (see [./example/wgi/lax1-wg1.yaml](./example/wgi/lax1-wg1.yaml)) and post them to the API server. Doing so gives you more granular control than the `WireGuardNetworkPlan` approach.
 
@@ -15,6 +15,7 @@ Alternatively, you can manually create a few `WireGuardInterface` resource objec
 1. Intention-oriented, declarative WireGuard network management.
 2. Multi-node support and container-awareness.
 3. Flexible configuration (network-wide or per-node customization).
+4. Self-healing: gracefully deals with abrupt misconfiguration and reconverges automatically.
 
 ## Install Dependencies
 
@@ -27,11 +28,11 @@ Alternatively, you can manually create a few `WireGuardInterface` resource objec
 go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
 ```
 
-Note: if `$GOPATH` is not defined in your shell profile, define it in the shell's startup script, if `$GOPATH/bin` is not in the `$PATH`, include it as well.
+Note: If `$GOPATH` is not defined in your shell profile, define it in the shell's startup script. If `$GOPATH/bin` is not in the `$PATH`, include it as well.
 
 ## Build
 
-After all dependencies are in position:
+After all dependencies are in place:
 
 ```sh
 # NOTE: PICK A TEST Kubernetes CLUSTER for testing.
@@ -50,7 +51,7 @@ docker compose up -d
 
 Now you will have three containers: agentx, agent1 and agent2 if everything goes well.
 
-Where agentx is the privileged container that runs in the host netns and shares the host pid namespace. We will run containers in the agentx container:
+Note that agentx is the privileged container that runs in the host netns and shares the host pid namespace. We will run controllers inside the agentx container:
 
 
 Start controller for node 'lax1':
@@ -74,9 +75,9 @@ docker exec -w /root/projects/go-projects/go-controller/bin -it agentx \
     ./wgplan-controller --kubeconfig=/root/.kube/config -v 4
 ```
 
-Don't forget to ensure that /root/.kube/config actually exists and is valid before launching all of these.
+Don't forget to ensure that /root/.kube/config actually exists and is valid before launching all of these controllers.
 
-Try out things:
+Try these examples:
 
 ```sh
 kubectl apply -f ./example/wgp/wgp1.yaml
@@ -99,7 +100,7 @@ docker exec -it agent1 ip a show type wireguard
 #        valid_lft forever preferred_lft forever
 ```
 
-You can now ping the another end of the tunnel:
+You can now ping the other end of the tunnel:
 
 ```sh
 docker exec -it agent1 ping -c 3 10.4.0.2
@@ -134,4 +135,4 @@ The WireGuard controller consists of two main components:
 
 ### Custom Resources
 - `WireGuardNetworkPlan`: Defines complete network topologies with nodes, links, and configurations
-- `WireGuardInterface`: Individual WireGuard interface configurations for granular control
+- `WireGuardInterface`: Individual WireGuard interface configurations that provide granular control over node's WireGuard interfaces
