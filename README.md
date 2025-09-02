@@ -130,13 +130,13 @@ docker exec -it agent1 ping -c 3 fe80::a:1771%wg1
 
 ### Setting up various netlink interfaces:
 
-Apply [./example/nl/nl1-dummy.yaml](./example/nl/nl1-dummy.yaml) to create a interface of type dummy in node lax1:
+Apply [./example/nl/nl1-dummy.yaml](./example/nl/nl1-dummy.yaml) to create an interface of type dummy in node lax1:
 
 ```sh
 kubectl apply -f ./example/nl/nl1-dummy.yaml
 ```
 
-Apply [./example/nl/nl2-bridge.yaml](./example/nl/nl2-bridge.yaml) to create a interface of type bridge in node lax1:
+Apply [./example/nl/nl2-bridge.yaml](./example/nl/nl2-bridge.yaml) to create an interface of type bridge in node lax1:
 
 ```sh
 kubectl apply -f ./example/nl/nl2-bridge.yaml
