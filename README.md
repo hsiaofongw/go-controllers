@@ -128,11 +128,14 @@ docker exec -it agent1 ping -c 3 fe80::a:1771%wg1
 
 ## CRDs and Controller Design
 
-The WireGuard controller consists of two main components:
+The networking controller system consists of three main components:
 
 1. **WireGuardNetworkPlan Controller** (`wgplan-controller`): Manages high-level network topology definitions
-2. **WireGuard Interface Controller** (`wg-controller`): Runs on each node to manage local WireGuard interfaces
+2. **WireGuard Interface Controller** (`wg-controller`): Runs on each node to manage local WireGuard interfaces and ensure they match the desired state
+3. **NetlinkInterface Controller** (`netlink-controller`): Runs on each node to manage various types of Linux network interfaces (bridge, veth, dummy) with declarative configuration
 
 ### Custom Resources
 - `WireGuardNetworkPlan`: Defines complete network topologies with nodes, links, and configurations
-- `WireGuardInterface`: Individual WireGuard interface configurations that provide granular control over nodes' WireGuard interfaces
+- `WireGuardInterface`: Defines desired WireGuard configurations on each node with granular control
+- `NetlinkInterface`: Defines desired configurations for various types of netlink interfaces (bridge, veth, dummy) on each node
+
