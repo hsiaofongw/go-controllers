@@ -401,18 +401,18 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 			return fmt.Errorf("failed to create reconciler: %s", err.Error())
 		}
 
-		hasUpdates, err := reconciler.DetectChanges(ctx, &wgObj.Spec, &wgObj.Status)
-		if err != nil {
-			return fmt.Errorf("failed to detect changes: %s", err.Error())
-		}
-		maxLoops := 10
 		desiredSpec, err := c.toWGDesiredConfig(&wgObj.Spec)
 		if err != nil {
 			return fmt.Errorf("failed to convert wireguard config: %s", err.Error())
 		}
+		hasUpdates, err := reconciler.DetectChanges(ctx, desiredSpec, &wgObj.Status)
+		if err != nil {
+			return fmt.Errorf("failed to detect changes: %s", err.Error())
+		}
+		maxLoops := 10
 		for hasUpdates && maxLoops > 0 {
 
-			err = reconciler.ApplyReconcile(ctx, &wgObj.Spec)
+			err = reconciler.ApplyReconcile(ctx, desiredSpec)
 			if err != nil {
 				break
 			}
@@ -474,7 +474,12 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 		return fmt.Errorf("failed to create reconciler: %s", err.Error())
 	}
 
-	hasUpdates, err := reconciler.DetectChanges(ctx, &wgObjCopy.Spec, status)
+	desiredSpec, err := c.toWGDesiredConfig(&wgObjCopy.Spec)
+	if err != nil {
+		return fmt.Errorf("failed to convert wireguard config: %s", err.Error())
+	}
+
+	hasUpdates, err := reconciler.DetectChanges(ctx, desiredSpec, status)
 	if err != nil {
 		return fmt.Errorf("failed to detect changes: %s", err.Error())
 	}

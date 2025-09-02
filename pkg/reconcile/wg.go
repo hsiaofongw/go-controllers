@@ -469,8 +469,8 @@ func applyPeersDiff(diff *PeersDiff, wgCtrlCli *wgctrl.Client, intfName string) 
 
 type WGOuterConfigDiff struct {
 	PrivateKey   *wgtypes.Key
-	ListenPort   int
-	FirewallMark int
+	ListenPort   *int
+	FirewallMark *int
 }
 
 func reconcileWGOuterConfig(wgConf *wgtypes.Config, devStatus *wgtypes.Device) (*WGOuterConfigDiff, error) {
@@ -486,13 +486,13 @@ func reconcileWGOuterConfig(wgConf *wgtypes.Config, devStatus *wgtypes.Device) (
 		updated = true
 	}
 
-	if devStatus.ListenPort != *wgConf.ListenPort {
-		diff.ListenPort = *wgConf.ListenPort
+	if wgConf.ListenPort != nil && devStatus.ListenPort != *wgConf.ListenPort {
+		diff.ListenPort = wgConf.ListenPort
 		updated = true
 	}
 
-	if devStatus.FirewallMark != *wgConf.FirewallMark {
-		diff.FirewallMark = *wgConf.FirewallMark
+	if wgConf.FirewallMark != nil && devStatus.FirewallMark != *wgConf.FirewallMark {
+		diff.FirewallMark = wgConf.FirewallMark
 		updated = true
 	}
 
@@ -509,10 +509,21 @@ func applyWGOuterConfigDiff(diff *WGOuterConfigDiff, wgCtrlCli *wgctrl.Client, i
 	}
 
 	wgConf := new(wgtypes.Config)
-	wgConf.PrivateKey = diff.PrivateKey
-	wgConf.ListenPort = &diff.ListenPort
-	wgConf.FirewallMark = &diff.FirewallMark
+	if diff.PrivateKey != nil {
+		wgConf.PrivateKey = diff.PrivateKey
+	}
+
+	if diff.ListenPort != nil {
+		wgConf.ListenPort = diff.ListenPort
+	}
+
+	if diff.FirewallMark != nil {
+		wgConf.FirewallMark = diff.FirewallMark
+	}
+
 	wgConf.ReplacePeers = false
+	wgConf.Peers = make([]wgtypes.PeerConfig, 0)
+
 	err := wgCtrlCli.ConfigureDevice(intfName, *wgConf)
 	if err != nil {
 		return fmt.Errorf("failed to configure device %s: %s", intfName, err.Error())
