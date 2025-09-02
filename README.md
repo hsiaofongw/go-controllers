@@ -37,11 +37,11 @@ After all dependencies are in place:
 ```sh
 # NOTE: PICK A TEST Kubernetes CLUSTER for testing.
 # It will apply some CRD manifests to the API server.
-# ** Be aware that ** it might override the already applied CRDs in your k8s cluster with the same name.
+# **Be aware that** it might override the already applied CRDs in your k8s cluster with the same name.
 ./build-all.sh
 ```
 
-## Give It A Try:
+## Give It a Try:
 
 ```sh
 cd ./lab
@@ -51,7 +51,7 @@ docker compose up -d
 
 Now you will have three containers: agentx, agent1 and agent2 if everything goes well.
 
-Note that agentx is the privileged container that runs in the host netns and shares the host pid namespace. We will run controllers inside the agentx container:
+Note that agentx is the privileged container that runs in the host netns and shares the host pid namespace. We will run controllers inside the agentx container.
 
 
 Start controller for node 'lax1':
@@ -71,7 +71,7 @@ docker exec -w /root/projects/go-projects/go-controllers/bin -it agentx \
 Start the controller that is responsible for the WireGuardNetworkPlan resources:
 
 ```sh
-docker exec -w /root/projects/go-projects/go-controller/bin -it agentx \
+docker exec -w /root/projects/go-projects/go-controllers/bin -it agentx \
     ./wgplan-controller --kubeconfig=/root/.kube/config -v 4
 ```
 
@@ -135,4 +135,4 @@ The WireGuard controller consists of two main components:
 
 ### Custom Resources
 - `WireGuardNetworkPlan`: Defines complete network topologies with nodes, links, and configurations
-- `WireGuardInterface`: Individual WireGuard interface configurations that provide granular control over node's WireGuard interfaces
+- `WireGuardInterface`: Individual WireGuard interface configurations that provide granular control over nodes' WireGuard interfaces
