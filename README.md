@@ -130,6 +130,13 @@ docker exec -it agent1 ping -c 3 fe80::a:1771%wg1
 
 ### Setting up various netlink interfaces:
 
+Start netlink controller on node lax1:
+
+```sh
+docker exec -w /root/projects/go-projects/go-controllers/bin -it agentx \
+    ./nl-controller --kubeconfig /root/.kube/config -nodename lax1 -v 4
+```
+
 Apply [./example/nl/nl1-dummy.yaml](./example/nl/nl1-dummy.yaml) to create an interface of type dummy in node lax1:
 
 ```sh
@@ -141,6 +148,8 @@ Apply [./example/nl/nl2-bridge.yaml](./example/nl/nl2-bridge.yaml) to create an 
 ```sh
 kubectl apply -f ./example/nl/nl2-bridge.yaml
 ```
+
+To create and apply netlink configurations for node lax2, launch the controller on node lax2 as well.
 
 ## CRDs and Controller Design
 
