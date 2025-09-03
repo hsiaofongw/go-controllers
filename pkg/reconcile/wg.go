@@ -30,7 +30,7 @@ type WGDesiredState struct {
 type WGReconciler struct {
 	interfaceName          string
 	pid                    *int
-	shouldUpdateAddr       bool
+	shouldUpdateAddr       *NetlinkAddrDifferenceSet
 	shouldCreateInterface  bool
 	shouldUpdateMTU        bool
 	shouldUpdateAdminState bool
@@ -114,16 +114,16 @@ func (r *WGReconciler) DetectChanges(ctx context.Context, desiredState interface
 			}
 		}
 
-		updated, _, err := reconcileAddrs(handle, link, desiredConf.IPAddrs, true)
+		nlAddrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
 		if err != nil {
-			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
+			return fmt.Errorf("failed to get addrs of link %s: %s", r.interfaceName, err.Error())
+		}
+		r.shouldUpdateAddr, err = getAddrReconciliationPlan(desiredConf.IPAddrs, nlAddrs)
+		if err != nil {
+			return fmt.Errorf("failed to get addr reconciliation plan of link %s: %s", r.interfaceName, err.Error())
 		}
 
-		if updated {
-			r.shouldUpdateAddr = updated
-		}
-
-		updated, err = reconcileAdminState(ctx, handle, link, true, true)
+		updated, err := reconcileAdminState(ctx, handle, link, true, true)
 		if err != nil {
 			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
 		}
@@ -240,10 +240,10 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 			}
 		}
 
-		if r.shouldUpdateAddr {
-			_, _, err := reconcileAddrs(handle, link, desiredConf.IPAddrs, false)
+		if r.shouldUpdateAddr != nil {
+			err := applyAddrReconciliationPlan(handle, link, r.shouldUpdateAddr)
 			if err != nil {
-				return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
+				return fmt.Errorf("failed to apply addr reconciliation plan of link %s: %s", r.interfaceName, err.Error())
 			}
 		}
 
@@ -273,7 +273,7 @@ func (r *WGReconciler) ApplyReconcile(ctx context.Context, desiredState interfac
 
 func (r *WGReconciler) ResetState() {
 	r.shouldCreateInterface = false
-	r.shouldUpdateAddr = false
+	r.shouldUpdateAddr = nil
 	r.shouldUpdateMTU = false
 	r.shouldUpdateAdminState = false
 	r.peersDiff = nil
@@ -282,7 +282,7 @@ func (r *WGReconciler) ResetState() {
 
 func (r *WGReconciler) gatherAllUpdates() bool {
 	return r.shouldCreateInterface ||
-		r.shouldUpdateAddr ||
+		r.shouldUpdateAddr != nil ||
 		r.shouldUpdateMTU ||
 		r.wgOuterConfigDiff != nil ||
 		r.shouldUpdateAdminState ||

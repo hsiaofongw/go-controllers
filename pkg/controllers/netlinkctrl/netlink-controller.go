@@ -521,4 +521,10 @@ func registerReconcilerFactory(reconcilerFactoryMap map[string]pkgreconcile.Reco
 	reconcilerFactoryMap[string(networkingv1alpha1.NetlinkInterfaceTypeBridge)] = func() (pkgreconcile.Reconciler, error) {
 		return pkgreconcile.NewBridgeReconciler(interfaceName, pid)
 	}
+	reconcilerFactoryMap[string(networkingv1alpha1.NetlinkInterfaceTypeVXLAN)] = func() (pkgreconcile.Reconciler, error) {
+		return pkgreconcile.NewVXLANReconciler(interfaceName, pid)
+	}
+	reconcilerFactoryMap[string(networkingv1alpha1.NetlinkInterfaceTypeVeth)] = func() (pkgreconcile.Reconciler, error) {
+		return pkgreconcile.NewVethReconciler(interfaceName, pid)
+	}
 }

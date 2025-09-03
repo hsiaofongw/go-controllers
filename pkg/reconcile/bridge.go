@@ -14,11 +14,11 @@ type BridgeReconciler struct {
 	pid                       *int
 	shouldUpdateMTU           *int
 	shouldUpdateAdminState    *bool
-	shouldAddAddrs            map[string]*netlink.Addr
-	shouldRemoveAddrs         map[string]*netlink.Addr
 	shouldAddEnslavedLinks    map[string]netlink.Link
 	shouldRemoveEnslavedLinks map[string]netlink.Link
 	shouldCreateInterface     bool
+
+	shouldUpdateAddrs *NetlinkAddrDifferenceSet
 }
 
 func NewBridgeReconciler(interfaceName string, pid *int) (*BridgeReconciler, error) {
@@ -31,8 +31,7 @@ func NewBridgeReconciler(interfaceName string, pid *int) (*BridgeReconciler, err
 func (r *BridgeReconciler) gatherAllUpdates() bool {
 	return r.shouldUpdateMTU != nil ||
 		r.shouldUpdateAdminState != nil ||
-		len(r.shouldAddAddrs) > 0 ||
-		len(r.shouldRemoveAddrs) > 0 ||
+		r.shouldUpdateAddrs != nil ||
 		len(r.shouldAddEnslavedLinks) > 0 ||
 		len(r.shouldRemoveEnslavedLinks) > 0 ||
 		r.shouldCreateInterface
@@ -122,14 +121,14 @@ func (r *BridgeReconciler) DetectChanges(ctx context.Context, desiredState inter
 			return fmt.Errorf("failed to convert address specs to netlink addresses: %s", err.Error())
 		}
 
-		updated, diffSet, err := reconcileAddrs(handle, link, specAddrs, true)
+		nlAddrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
 		if err != nil {
-			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
+			return fmt.Errorf("failed to get addrs of link %s: %s", r.interfaceName, err.Error())
 		}
 
-		if updated {
-			r.shouldRemoveAddrs = diffSet.Removed
-			r.shouldAddAddrs = diffSet.Added
+		r.shouldUpdateAddrs, err = getAddrReconciliationPlan(specAddrs, nlAddrs)
+		if err != nil {
+			return fmt.Errorf("failed to get addr reconciliation plan of link %s: %s", r.interfaceName, err.Error())
 		}
 
 		updated, err = reconcileAdminState(ctx, handle, link, bridgeSpec.Up, true)
@@ -187,13 +186,11 @@ func (r *BridgeReconciler) ApplyReconcile(ctx context.Context, desiredState inte
 			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
 		}
 
-		specAddrs, err := toNetlinkAddrList(bridgeSpec.Addresses)
-		if err != nil {
-			return fmt.Errorf("failed to convert address specs to netlink addresses: %s", err.Error())
-		}
-
-		if _, _, err := reconcileAddrs(handle, link, specAddrs, false); err != nil {
-			return fmt.Errorf("failed to reconcile addresses of link %s: %s", r.interfaceName, err.Error())
+		if r.shouldUpdateAddrs != nil {
+			err := applyAddrReconciliationPlan(handle, link, r.shouldUpdateAddrs)
+			if err != nil {
+				return fmt.Errorf("failed to apply addr reconciliation plan of link %s: %s", r.interfaceName, err.Error())
+			}
 		}
 
 		if _, err := reconcileAdminState(ctx, handle, link, bridgeSpec.Up, false); err != nil {
@@ -211,8 +208,7 @@ func (r *BridgeReconciler) ApplyReconcile(ctx context.Context, desiredState inte
 func (r *BridgeReconciler) ResetState() {
 	r.shouldUpdateMTU = nil
 	r.shouldUpdateAdminState = nil
-	r.shouldAddAddrs = nil
-	r.shouldRemoveAddrs = nil
+	r.shouldUpdateAddrs = nil
 	r.shouldAddEnslavedLinks = nil
 	r.shouldRemoveEnslavedLinks = nil
 	r.shouldCreateInterface = false

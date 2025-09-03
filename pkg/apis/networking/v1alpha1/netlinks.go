@@ -55,7 +55,7 @@ type NetlinkInterfaceType string
 const (
 	NetlinkInterfaceTypeBridge NetlinkInterfaceType = "bridge"
 	NetlinkInterfaceTypeVeth   NetlinkInterfaceType = "veth"
-	NetlinkInterfaceTypeVxlan  NetlinkInterfaceType = "vxlan"
+	NetlinkInterfaceTypeVXLAN  NetlinkInterfaceType = "vxlan"
 	NetlinkInterfaceTypeDummy  NetlinkInterfaceType = "dummy"
 )
 
@@ -79,6 +79,9 @@ type NetlinkInterfaceVxlanSpec struct {
 	// you setup your own BGPEVPN to distribute the L2 reachability information.
 	// +optional
 	NoLearning bool `json:"noLearning"`
+
+	// The port of the vxlan interface.
+	Port *int `json:"port,omitempty"`
 }
 
 type NetlinkInterfaceDummySpec struct {
@@ -87,9 +90,6 @@ type NetlinkInterfaceDummySpec struct {
 type NetlinkInterfaceVethPeerSpec struct {
 	// When present, this field will take precedence over the interface name specified in the NetlinkInterfaceSpec.
 	InterfaceName *string `json:"interfaceName,omitempty"`
-
-	// Master is the name of the bridge interface where this veth is enslaved to.
-	Master *string `json:"master,omitempty"`
 
 	// When present, these addresses will take precedence over the addresses specified in the NetlinkInterfaceSpec.
 	Addresses []NetlinkInterfaceAddressSpec `json:"addresses,omitempty"`
@@ -110,9 +110,13 @@ type NetlinkInterfaceSpec struct {
 	Type          NetlinkInterfaceType `json:"type"`
 
 	Bridge *NetlinkInterfaceBridgeSpec `json:"bridge,omitempty"`
-	Vxlan  *NetlinkInterfaceVxlanSpec  `json:"vxlan,omitempty"`
-	Dummy  *NetlinkInterfaceDummySpec  `json:"dummy,omitempty"`
-	Veth   *NetlinkInterfaceVethSpec   `json:"veth,omitempty"`
+
+	// Note: all vxlan-specific specs are not-modifiable once the interface is created.
+	// To change the value of this field, you must delete the resource and create a new one.
+	Vxlan *NetlinkInterfaceVxlanSpec `json:"vxlan,omitempty"`
+
+	Dummy *NetlinkInterfaceDummySpec `json:"dummy,omitempty"`
+	Veth  *NetlinkInterfaceVethSpec  `json:"veth,omitempty"`
 
 	Addresses []NetlinkInterfaceAddressSpec `json:"addresses,omitempty"`
 	MTU       *int                          `json:"mtu,omitempty"`
@@ -123,6 +127,8 @@ type NetlinkInterfaceSpec struct {
 
 	// It specific where to place the interface, if it's nil, the interface will be placed in the host netns,
 	// otherwise, the interface will be placed in the container's netns.
+	// Change of this field won't take effect (this field is not intended to be modified)
+	// The only way to specify a different value is to delete the old resource and create a new one.
 	Container *NetlinkInterfaceContainerSpec `json:"container,omitempty"`
 }
 

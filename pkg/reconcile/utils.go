@@ -83,34 +83,6 @@ func applyAddrReconciliationPlan(handle *netlink.Handle, link netlink.Link, diff
 }
 
 // Returns: (updated, error)
-func reconcileAddrs(handle *netlink.Handle, link netlink.Link, specAddrs []netlink.Addr, dryRun bool) (bool, *NetlinkAddrDifferenceSet, error) {
-	hasUpdated := false
-	var diffSet *NetlinkAddrDifferenceSet
-
-	nlAddrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
-	if err != nil {
-		return false, diffSet, fmt.Errorf("failed to get addresses: %s", err.Error())
-	}
-
-	diffSet, err = getAddrReconciliationPlan(specAddrs, nlAddrs)
-	if err != nil {
-		return false, nil, fmt.Errorf("failed to calculate the difference between the spec and the current netlink interface's addresses: %s", err.Error())
-	}
-
-	hasUpdated = len(diffSet.Added) > 0 || len(diffSet.Removed) > 0
-
-	if dryRun {
-		return hasUpdated, diffSet, nil
-	}
-
-	if err := applyAddrReconciliationPlan(handle, link, diffSet); err != nil {
-		return true, nil, fmt.Errorf("failed to apply the reconciliation plan: %s", err.Error())
-	}
-
-	return hasUpdated, diffSet, nil
-}
-
-// Returns: (updated, error)
 func reconcileAdminState(ctx context.Context, handle *netlink.Handle, link netlink.Link, up bool, dryRun bool) (bool, error) {
 	logger := klog.FromContext(ctx)
 
@@ -234,6 +206,10 @@ func toNetlinkAddr(addrSpec *networkingv1alpha1.NetlinkInterfaceAddressSpec) (*n
 }
 
 func toNetlinkAddrList(addrSpecs []networkingv1alpha1.NetlinkInterfaceAddressSpec) ([]netlink.Addr, error) {
+	if addrSpecs == nil {
+		return nil, nil
+	}
+
 	addrList := make([]netlink.Addr, 0)
 	for _, addrSpec := range addrSpecs {
 		addrObj, err := toNetlinkAddr(&addrSpec)

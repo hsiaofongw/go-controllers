@@ -9,8 +9,8 @@ import (
 	pkgutils "k8s.io/sample-controller/pkg/utils"
 )
 
-// A DummyReconciler implements the Reconciler interface
-type DummyReconciler struct {
+// A VXLANReconciler implements the Reconciler interface
+type VXLANReconciler struct {
 	interfaceName          string
 	pid                    *int
 	shouldCreateInterface  bool
@@ -19,23 +19,24 @@ type DummyReconciler struct {
 	shouldUpdateAddrs      *NetlinkAddrDifferenceSet
 }
 
-func NewDummyReconciler(interfaceName string, pid *int) (*DummyReconciler, error) {
-	dummyReconciler := new(DummyReconciler)
-	dummyReconciler.interfaceName = interfaceName
-	dummyReconciler.pid = pid
-	return dummyReconciler, nil
+func NewVXLANReconciler(interfaceName string, pid *int) (*VXLANReconciler, error) {
+	reconciler := new(VXLANReconciler)
+	reconciler.interfaceName = interfaceName
+	reconciler.pid = pid
+	return reconciler, nil
 }
 
-func (r *DummyReconciler) gatherAllUpdates() bool {
+func (r *VXLANReconciler) gatherAllUpdates() bool {
 	return r.shouldCreateInterface ||
 		r.shouldUpdateAddrs != nil ||
 		r.shouldUpdateMTU != nil ||
 		r.shouldUpdateAdminState != nil
+
 }
 
 // Returns: (hasUpdates, error)
-func (r *DummyReconciler) DetectChanges(ctx context.Context, desiredState interface{}, statusPtr interface{}) (bool, error) {
-	dummySpec, ok := desiredState.(*networkingv1alpha1.NetlinkInterfaceSpec)
+func (r *VXLANReconciler) DetectChanges(ctx context.Context, desiredState interface{}, statusPtr interface{}) (bool, error) {
+	netlinkSpec, ok := desiredState.(*networkingv1alpha1.NetlinkInterfaceSpec)
 	if !ok {
 		return false, fmt.Errorf("desired state is not a *networkingv1alpha1.NetlinkInterfaceSpec")
 	}
@@ -91,19 +92,14 @@ func (r *DummyReconciler) DetectChanges(ctx context.Context, desiredState interf
 			status.Addresses = addrsStrs
 		}
 
-		updated, err := reconcileMTU(handle, link, dummySpec.MTU, true)
+		updated, err := reconcileMTU(handle, link, netlinkSpec.MTU, true)
 		if err != nil {
 			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
 		}
 
 		if updated {
-			mtu := *dummySpec.MTU
+			mtu := *netlinkSpec.MTU
 			r.shouldUpdateMTU = &mtu
-		}
-
-		specAddrs, err := toNetlinkAddrList(dummySpec.Addresses)
-		if err != nil {
-			return fmt.Errorf("failed to convert address specs to netlink addresses: %s", err.Error())
 		}
 
 		nlAddrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
@@ -111,18 +107,23 @@ func (r *DummyReconciler) DetectChanges(ctx context.Context, desiredState interf
 			return fmt.Errorf("failed to get addrs of link %s: %s", r.interfaceName, err.Error())
 		}
 
+		specAddrs, err := toNetlinkAddrList(netlinkSpec.Addresses)
+		if err != nil {
+			return fmt.Errorf("failed to convert address specs to netlink addresses: %s", err.Error())
+		}
+
 		r.shouldUpdateAddrs, err = getAddrReconciliationPlan(specAddrs, nlAddrs)
 		if err != nil {
 			return fmt.Errorf("failed to get addr reconciliation plan of link %s: %s", r.interfaceName, err.Error())
 		}
 
-		updated, err = reconcileAdminState(ctx, handle, link, dummySpec.Up, true)
+		updated, err = reconcileAdminState(ctx, handle, link, netlinkSpec.Up, true)
 		if err != nil {
 			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
 		}
 
 		if updated {
-			desiredAdminState := dummySpec.Up
+			desiredAdminState := netlinkSpec.Up
 			r.shouldUpdateAdminState = &desiredAdminState
 		}
 
@@ -133,15 +134,38 @@ func (r *DummyReconciler) DetectChanges(ctx context.Context, desiredState interf
 }
 
 // Returns: (converged, error)
-func (r *DummyReconciler) ApplyReconcile(ctx context.Context, desiredState interface{}) error {
-	dummySpec, ok := desiredState.(*networkingv1alpha1.NetlinkInterfaceSpec)
+func (r *VXLANReconciler) ApplyReconcile(ctx context.Context, desiredState interface{}) error {
+	netlinkSpec, ok := desiredState.(*networkingv1alpha1.NetlinkInterfaceSpec)
 	if !ok {
 		return fmt.Errorf("desired state is not a *networkingv1alpha1.NetlinkInterfaceSpec")
 	}
 
+	if netlinkSpec.Vxlan == nil {
+		return fmt.Errorf("vxlan spec is nil")
+	}
+
 	return pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
 		if r.shouldCreateInterface {
-			link := new(netlink.Dummy)
+			link := new(netlink.Vxlan)
+
+			link.VxlanId = int(netlinkSpec.Vxlan.VNI)
+			if netlinkSpec.Vxlan.Port != nil {
+				link.Port = *netlinkSpec.Vxlan.Port
+			}
+
+			link.Learning = !netlinkSpec.Vxlan.NoLearning
+
+			if netlinkSpec.Vxlan.Dev != nil {
+				vtepDev, err := handle.LinkByName(*netlinkSpec.Vxlan.Dev)
+				if err != nil {
+					// Specified a vtep dev that is not exists IS an error here,
+					// so abort the creation of vxlan interface.
+					return fmt.Errorf("failed to get link %s: %s", *netlinkSpec.Vxlan.Dev, err.Error())
+				} else {
+					link.VtepDevIndex = vtepDev.Attrs().Index
+				}
+			}
+
 			if err := handle.LinkSetName(link, r.interfaceName); err != nil {
 				return fmt.Errorf("failed to set name of link %s: %s", r.interfaceName, err.Error())
 			}
@@ -166,7 +190,7 @@ func (r *DummyReconciler) ApplyReconcile(ctx context.Context, desiredState inter
 			}
 		}
 
-		if _, err := reconcileAdminState(ctx, handle, link, dummySpec.Up, false); err != nil {
+		if _, err := reconcileAdminState(ctx, handle, link, netlinkSpec.Up, false); err != nil {
 			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
 		}
 
@@ -174,7 +198,7 @@ func (r *DummyReconciler) ApplyReconcile(ctx context.Context, desiredState inter
 	})
 }
 
-func (r *DummyReconciler) ResetState() {
+func (r *VXLANReconciler) ResetState() {
 	r.shouldCreateInterface = false
 	r.shouldUpdateAddrs = nil
 	r.shouldUpdateMTU = nil
