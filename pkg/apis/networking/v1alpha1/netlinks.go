@@ -75,6 +75,9 @@ type NetlinkInterfaceVxlanSpec struct {
 	// The src IP of the outer encapsulated ip packet.
 	Local *string `json:"local,omitempty"`
 
+	// Specifies the multicast IP address to join. This parameter cannot be specified with the remote parameter.
+	Group *string `json:"group,omitempty"`
+
 	// NoLearning is usefull when you want to take over the controlplane of vxlan, such as
 	// you setup your own BGPEVPN to distribute the L2 reachability information.
 	// +optional
@@ -82,6 +85,20 @@ type NetlinkInterfaceVxlanSpec struct {
 
 	// The port of the vxlan interface.
 	Port *int `json:"port,omitempty"`
+
+	// Specifies the TTL value to use in outgoing packets.
+	TTL *int `json:"ttl,omitempty"`
+
+	// Specifies the TOS value to use in outgoing packets.
+	TOS *int `json:"tos,omitempty"`
+
+	ProxyARP *bool `json:"proxyARP,omitempty"`
+
+	NoAge *bool `json:"noAge,omitempty"`
+
+	// Specifies the range of port numbers to use as UDP source ports to communicate to the remote VXLAN tunnel endpoint.
+	// Must be a pair of integers [portLow, portHigh]
+	PortRange []int `json:"portRange,omitempty"`
 }
 
 type NetlinkInterfaceDummySpec struct {

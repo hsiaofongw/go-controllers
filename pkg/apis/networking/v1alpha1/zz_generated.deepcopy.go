@@ -372,11 +372,6 @@ func (in *NetlinkInterfaceVethPeerSpec) DeepCopyInto(out *NetlinkInterfaceVethPe
 		*out = new(string)
 		**out = **in
 	}
-	if in.Master != nil {
-		in, out := &in.Master, &out.Master
-		*out = new(string)
-		**out = **in
-	}
 	if in.Addresses != nil {
 		in, out := &in.Addresses, &out.Addresses
 		*out = make([]NetlinkInterfaceAddressSpec, len(*in))
@@ -440,6 +435,41 @@ func (in *NetlinkInterfaceVxlanSpec) DeepCopyInto(out *NetlinkInterfaceVxlanSpec
 		in, out := &in.Local, &out.Local
 		*out = new(string)
 		**out = **in
+	}
+	if in.Group != nil {
+		in, out := &in.Group, &out.Group
+		*out = new(string)
+		**out = **in
+	}
+	if in.Port != nil {
+		in, out := &in.Port, &out.Port
+		*out = new(int)
+		**out = **in
+	}
+	if in.TTL != nil {
+		in, out := &in.TTL, &out.TTL
+		*out = new(int)
+		**out = **in
+	}
+	if in.TOS != nil {
+		in, out := &in.TOS, &out.TOS
+		*out = new(int)
+		**out = **in
+	}
+	if in.ProxyARP != nil {
+		in, out := &in.ProxyARP, &out.ProxyARP
+		*out = new(bool)
+		**out = **in
+	}
+	if in.NoAge != nil {
+		in, out := &in.NoAge, &out.NoAge
+		*out = new(bool)
+		**out = **in
+	}
+	if in.PortRange != nil {
+		in, out := &in.PortRange, &out.PortRange
+		*out = make([]int, len(*in))
+		copy(*out, *in)
 	}
 	return
 }

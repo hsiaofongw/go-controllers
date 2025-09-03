@@ -3,6 +3,7 @@ package reconcile
 import (
 	"context"
 	"fmt"
+	"net"
 
 	"github.com/vishvananda/netlink"
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
@@ -153,6 +154,38 @@ func (r *VXLANReconciler) ApplyReconcile(ctx context.Context, desiredState inter
 				link.Port = *netlinkSpec.Vxlan.Port
 			}
 
+			if netlinkSpec.Vxlan.Group != nil && *netlinkSpec.Vxlan.Group != "" {
+				groupIp := net.ParseIP(*netlinkSpec.Vxlan.Group)
+				if groupIp == nil {
+					return fmt.Errorf("failed to parse group id: %s", *netlinkSpec.Vxlan.Group)
+				}
+				link.Group = groupIp
+			}
+
+			if netlinkSpec.Vxlan.TTL != nil {
+				link.TTL = *netlinkSpec.Vxlan.TTL
+			}
+
+			if netlinkSpec.Vxlan.TOS != nil {
+				link.TOS = *netlinkSpec.Vxlan.TOS
+			}
+
+			if netlinkSpec.Vxlan.ProxyARP != nil {
+				link.Proxy = *netlinkSpec.Vxlan.ProxyARP
+			}
+
+			if netlinkSpec.Vxlan.NoAge != nil {
+				link.NoAge = *netlinkSpec.Vxlan.NoAge
+			}
+
+			if netlinkSpec.Vxlan.PortRange != nil {
+				if len(netlinkSpec.Vxlan.PortRange) != 2 {
+					return fmt.Errorf("port range must be a pair of integers")
+				}
+				link.PortLow = netlinkSpec.Vxlan.PortRange[0]
+				link.PortHigh = netlinkSpec.Vxlan.PortRange[1]
+			}
+
 			link.Learning = !netlinkSpec.Vxlan.NoLearning
 
 			if netlinkSpec.Vxlan.Dev != nil {
@@ -161,9 +194,9 @@ func (r *VXLANReconciler) ApplyReconcile(ctx context.Context, desiredState inter
 					// Specified a vtep dev that is not exists IS an error here,
 					// so abort the creation of vxlan interface.
 					return fmt.Errorf("failed to get link %s: %s", *netlinkSpec.Vxlan.Dev, err.Error())
-				} else {
-					link.VtepDevIndex = vtepDev.Attrs().Index
 				}
+
+				link.VtepDevIndex = vtepDev.Attrs().Index
 			}
 
 			if err := handle.LinkSetName(link, r.interfaceName); err != nil {

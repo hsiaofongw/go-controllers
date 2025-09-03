@@ -71,6 +71,8 @@ spec:
                 description: |-
                   It specific where to place the interface, if it's nil, the interface will be placed in the host netns,
                   otherwise, the interface will be placed in the container's netns.
+                  Change of this field won't take effect (this field is not intended to be modified)
+                  The only way to specify a different value is to delete the old resource and create a new one.
                 properties:
                   docker:
                     properties:
@@ -140,10 +142,6 @@ spec:
                         description: When present, this field will take precedence
                           over the interface name specified in the NetlinkInterfaceSpec.
                         type: string
-                      master:
-                        description: Master is the name of the bridge interface where
-                          this veth is enslaved to.
-                        type: string
                     type: object
                   peerPeer:
                     properties:
@@ -183,13 +181,12 @@ spec:
                         description: When present, this field will take precedence
                           over the interface name specified in the NetlinkInterfaceSpec.
                         type: string
-                      master:
-                        description: Master is the name of the bridge interface where
-                          this veth is enslaved to.
-                        type: string
                     type: object
                 type: object
               vxlan:
+                description: |-
+                  Note: all vxlan-specific specs are not-modifiable once the interface is created.
+                  To change the value of this field, you must delete the resource and create a new one.
                 properties:
                   dev:
                     description: |-
@@ -197,14 +194,38 @@ spec:
                       It is useful when you want the vxlan take some vrf-enslaved interface as the dataplane,
                       or you want it automatically deduce the correct MTU.
                     type: string
+                  group:
+                    description: Specifies the multicast IP address to join. This
+                      parameter cannot be specified with the remote parameter.
+                    type: string
                   local:
                     description: The src IP of the outer encapsulated ip packet.
                     type: string
+                  noAge:
+                    type: boolean
                   noLearning:
                     description: |-
                       NoLearning is usefull when you want to take over the controlplane of vxlan, such as
                       you setup your own BGPEVPN to distribute the L2 reachability information.
                     type: boolean
+                  port:
+                    description: The port of the vxlan interface.
+                    type: integer
+                  portRange:
+                    description: |-
+                      Specifies the range of port numbers to use as UDP source ports to communicate to the remote VXLAN tunnel endpoint.
+                      Must be a pair of integers [portLow, portHigh]
+                    items:
+                      type: integer
+                    type: array
+                  proxyARP:
+                    type: boolean
+                  tos:
+                    description: Specifies the TOS value to use in outgoing packets.
+                    type: integer
+                  ttl:
+                    description: Specifies the TTL value to use in outgoing packets.
+                    type: integer
                   vni:
                     format: int64
                     type: integer
