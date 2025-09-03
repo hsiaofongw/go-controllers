@@ -32,9 +32,19 @@ Note: If `$GOPATH` is not defined in your shell profile, define it in the shell'
 
 ## Build
 
-After all dependencies are in place:
+After all dependencies are in place, pull the whole monorepo code base:
 
 ```sh
+cd ~/projects
+git clone --recurse-submodules https://gitea.exploro.one/admin/go-projects
+```
+
+Then cd into the project's directory and build:
+
+
+```sh
+cd ~/projects/go-projects/go-controllers
+
 # NOTE: PICK A TEST Kubernetes CLUSTER for testing.
 # It will apply some CRD manifests to the API server.
 # **Be aware that** it might override the already applied CRDs in your k8s cluster with the same name.
