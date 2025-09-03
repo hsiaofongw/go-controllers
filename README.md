@@ -178,16 +178,39 @@ docker exec -it agent1 ping -c 3 ff02::1%vxlan1
 
 Note that vxlan1 on agent1 and vxlan2 on agent2 relies on the WireGuard interfaces created earlier on this guide.
 
+Apply [./example/nl/veth.yaml](./example/nl/veth.yaml) would create a pair of veth interfaces, one is at container agent1, the another one is at container agent2:
+
+```sh
+kubectl apply -f ./example/nl/veth.yaml
+```
+
+Ping `ff02::1` to discovery the other end of the veth pair:
+
+```sh
+docker exec -it agent1 ping -c 3 ff02::1%veth1-a
+
+# PING ff02::1%veth1-a (ff02::1%veth1-a) 56 data bytes
+# 64 bytes from fe80::eeee:1%veth1-a: icmp_seq=1 ttl=64 time=0.175 ms
+# 64 bytes from fe80::eeee:2%veth1-a: icmp_seq=1 ttl=64 time=0.191 ms
+# 64 bytes from fe80::eeee:1%veth1-a: icmp_seq=2 ttl=64 time=0.122 ms
+# 64 bytes from fe80::eeee:2%veth1-a: icmp_seq=2 ttl=64 time=0.184 ms
+# 64 bytes from fe80::eeee:1%veth1-a: icmp_seq=3 ttl=64 time=0.077 ms
+
+# --- ff02::1%veth1-a ping statistics ---
+# 3 packets transmitted, 3 received, +2 duplicates, 0% packet loss, time 2030ms
+# rtt min/avg/max/mdev = 0.077/0.149/0.191/0.043 ms
+```
+
 ## CRDs and Controller Design
 
 The networking controller system consists of three main components:
 
 1. **WireGuardNetworkPlan Controller** (`wgplan-controller`): Manages high-level network topology definitions
 2. **WireGuard Interface Controller** (`wg-controller`): Runs on each node to manage local WireGuard interfaces and ensure they match the desired state
-3. **NetlinkInterface Controller** (`netlink-controller`): Runs on each node to manage various types of Linux network interfaces (bridge, vxlan, dummy) with declarative configuration
+3. **NetlinkInterface Controller** (`netlink-controller`): Runs on each node to manage various types of Linux network interfaces (bridge, vxlan, veth, dummy) with declarative configuration
 
 ### Custom Resources
 - `WireGuardNetworkPlan`: Defines complete network topologies with nodes, links, and configurations. See [./pkg/apis/networking/v1alpha1/plan.go](./pkg/apis/networking/v1alpha1/plan.go).
 - `WireGuardInterface`: Defines desired WireGuard configurations on each node with granular control See [./pkg/apis/networking/v1alpha1/types.go](./pkg/apis/networking/v1alpha1/types.go).
-- `NetlinkInterface`: Defines desired configurations for various types of netlink interfaces (bridge, vxlan, dummy) on each node. See [./pkg/apis/networking/v1alpha1/netlinks.go](./pkg/apis/networking/v1alpha1/netlinks.go).
+- `NetlinkInterface`: Defines desired configurations for various types of netlink interfaces (bridge, vxlan, veth, dummy) on each node. See [./pkg/apis/networking/v1alpha1/netlinks.go](./pkg/apis/networking/v1alpha1/netlinks.go).
 
