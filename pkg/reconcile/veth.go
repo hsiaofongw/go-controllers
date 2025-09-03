@@ -192,7 +192,12 @@ func (r *VethReconciler) detectChangeSet(pid *int, intfName string, spec *concer
 			}
 		}
 
-		addrDiff, err := getAddrReconciliationPlan(spec.Addresses, spec.Addresses)
+		addrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
+		if err != nil {
+			return fmt.Errorf("failed to get addresses of link %s: %s", intfName, err.Error())
+		}
+
+		addrDiff, err := getAddrReconciliationPlan(spec.Addresses, addrs)
 		if err != nil {
 			return fmt.Errorf("failed to get addr reconciliation plan of link %s: %s", intfName, err.Error())
 		}
