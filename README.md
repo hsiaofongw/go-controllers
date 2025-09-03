@@ -151,16 +151,43 @@ kubectl apply -f ./example/nl/nl2-bridge.yaml
 
 To create and apply netlink configurations for node lax2, launch the controller on node lax2 as well.
 
+Once controller in node lax2 is in position, apply [./example/nl/vxlan.yaml](./example/nl/vxlan.yaml) to create VTEPs on node lax1 and node lax2:
+
+```sh
+kubectl apply -f ./example/nl/vxlan.yaml
+```
+
+Doing so will create two VTEPs, one on container agent1, the another one on container agent2, named 'vxlan1' and 'vxlan2' respectively, assigned IPv6 link-local address as `fe80::1%vxlan1` and `fe80::2%vxlan2`.
+
+Then you can ping this multicast address to discovery the other VTEPs:
+
+```sh
+docker exec -it agent1 ping -c 3 ff02::1%vxlan1
+
+# PING ff02::1%vxlan1 (ff02::1%vxlan1) 56 data bytes
+# 64 bytes from fe80::1%vxlan1: icmp_seq=1 ttl=64 time=0.067 ms
+# 64 bytes from fe80::2%vxlan1: icmp_seq=1 ttl=64 time=1.33 ms
+# 64 bytes from fe80::1%vxlan1: icmp_seq=2 ttl=64 time=0.075 ms
+# 64 bytes from fe80::2%vxlan1: icmp_seq=2 ttl=64 time=0.395 ms
+# 64 bytes from fe80::1%vxlan1: icmp_seq=3 ttl=64 time=0.106 ms
+
+# --- ff02::1%vxlan1 ping statistics ---
+# 3 packets transmitted, 3 received, +2 duplicates, 0% packet loss, time 2018ms
+# rtt min/avg/max/mdev = 0.067/0.395/1.334/0.484 ms
+```
+
+Note that vxlan1 on agent1 and vxlan2 on agent2 relies on the WireGuard interfaces created earlier on this guide.
+
 ## CRDs and Controller Design
 
 The networking controller system consists of three main components:
 
 1. **WireGuardNetworkPlan Controller** (`wgplan-controller`): Manages high-level network topology definitions
 2. **WireGuard Interface Controller** (`wg-controller`): Runs on each node to manage local WireGuard interfaces and ensure they match the desired state
-3. **NetlinkInterface Controller** (`netlink-controller`): Runs on each node to manage various types of Linux network interfaces (bridge, veth, dummy) with declarative configuration
+3. **NetlinkInterface Controller** (`netlink-controller`): Runs on each node to manage various types of Linux network interfaces (bridge, vxlan, dummy) with declarative configuration
 
 ### Custom Resources
 - `WireGuardNetworkPlan`: Defines complete network topologies with nodes, links, and configurations. See [./pkg/apis/networking/v1alpha1/plan.go](./pkg/apis/networking/v1alpha1/plan.go).
 - `WireGuardInterface`: Defines desired WireGuard configurations on each node with granular control See [./pkg/apis/networking/v1alpha1/types.go](./pkg/apis/networking/v1alpha1/types.go).
-- `NetlinkInterface`: Defines desired configurations for various types of netlink interfaces (bridge, veth, dummy) on each node. See [./pkg/apis/networking/v1alpha1/netlinks.go](./pkg/apis/networking/v1alpha1/netlinks.go).
+- `NetlinkInterface`: Defines desired configurations for various types of netlink interfaces (bridge, vxlan, dummy) on each node. See [./pkg/apis/networking/v1alpha1/netlinks.go](./pkg/apis/networking/v1alpha1/netlinks.go).
 
