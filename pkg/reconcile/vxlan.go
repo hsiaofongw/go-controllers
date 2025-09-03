@@ -35,7 +35,6 @@ func (r *VXLANReconciler) gatherAllUpdates() bool {
 		r.shouldUpdateAddrs != nil ||
 		r.shouldUpdateMTU != nil ||
 		r.shouldUpdateAdminState != nil
-
 }
 
 // Returns: (hasUpdates, error)
@@ -96,14 +95,15 @@ func (r *VXLANReconciler) DetectChanges(ctx context.Context, desiredState interf
 			status.Addresses = addrsStrs
 		}
 
-		updated, err := reconcileMTU(handle, link, netlinkSpec.MTU, true)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
-		}
+		if netlinkSpec.MTU != nil {
+			updated, err := reconcileMTU(handle, link, netlinkSpec.MTU, true)
+			if err != nil {
+				return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
+			}
 
-		if updated {
-			mtu := *netlinkSpec.MTU
-			r.shouldUpdateMTU = &mtu
+			if updated {
+				r.shouldUpdateMTU = netlinkSpec.MTU
+			}
 		}
 
 		nlAddrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
@@ -121,7 +121,7 @@ func (r *VXLANReconciler) DetectChanges(ctx context.Context, desiredState interf
 			return fmt.Errorf("failed to get addr reconciliation plan of link %s: %s", r.interfaceName, err.Error())
 		}
 
-		updated, err = reconcileAdminState(ctx, handle, link, netlinkSpec.Up, true)
+		updated, err := reconcileAdminState(ctx, handle, link, netlinkSpec.Up, true)
 		if err != nil {
 			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
 		}
@@ -202,9 +202,7 @@ func (r *VXLANReconciler) ApplyReconcile(ctx context.Context, desiredState inter
 				link.VtepDevIndex = vtepDev.Attrs().Index
 			}
 
-			if err := handle.LinkSetName(link, r.interfaceName); err != nil {
-				return fmt.Errorf("failed to set name of link %s: %s", r.interfaceName, err.Error())
-			}
+			link.Attrs().Name = r.interfaceName
 
 			if err := handle.LinkAdd(link); err != nil {
 				return fmt.Errorf("failed to add link %s: %s", r.interfaceName, err.Error())
@@ -215,14 +213,18 @@ func (r *VXLANReconciler) ApplyReconcile(ctx context.Context, desiredState inter
 		}
 
 		link, _ := handle.LinkByName(r.interfaceName)
-		if _, err := reconcileMTU(handle, link, r.shouldUpdateMTU, false); err != nil {
-			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
-		}
 
 		if r.shouldUpdateAddrs != nil {
 			err := applyAddrReconciliationPlan(handle, link, r.shouldUpdateAddrs)
 			if err != nil {
 				return fmt.Errorf("failed to apply addr reconciliation plan of link %s: %s", r.interfaceName, err.Error())
+			}
+		}
+
+		if r.shouldUpdateMTU != nil {
+			err := handle.LinkSetMTU(link, *r.shouldUpdateMTU)
+			if err != nil {
+				return fmt.Errorf("failed to set mtu of link %s: %s", r.interfaceName, err.Error())
 			}
 		}
 

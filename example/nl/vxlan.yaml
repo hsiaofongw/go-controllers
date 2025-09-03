@@ -1,0 +1,46 @@
+---
+apiVersion: networking.dn42.io/v1alpha1
+kind: NetlinkInterface
+metadata:
+  name: lax1-agent1-vxlan1
+  finalizers:
+    - netlinkinterface.networking.dn42.io/finalizer
+spec:
+  node: lax1
+  interfaceName: vxlan1
+  type: vxlan
+  vxlan:
+    vni: 142
+    port: 4789
+    local: "10.4.0.1"
+    group: "10.4.0.2"
+    dev: wg-lax1-lax2-0
+  addresses:
+    - ipcidr: "fe80::1/64"
+  up: true
+  container:
+    docker:
+      name: agent1
+---
+apiVersion: networking.dn42.io/v1alpha1
+kind: NetlinkInterface
+metadata:
+  name: lax1-agent2-vxlan2
+  finalizers:
+    - netlinkinterface.networking.dn42.io/finalizer
+spec:
+  node: lax1
+  interfaceName: vxlan2
+  type: vxlan
+  vxlan:
+    vni: 142
+    port: 4789
+    local: "10.4.0.2"
+    group: "10.4.0.1"
+    dev: wg-lax2-lax1-0
+  addresses:
+    - ipcidr: "fe80::2/64"
+  up: true
+  container:
+    docker:
+      name: agent2

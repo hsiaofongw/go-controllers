@@ -65,7 +65,11 @@ func getAddrReconciliationPlan(addrSpecs []netlink.Addr, nlAddrs []netlink.Addr)
 	result := new(NetlinkAddrDifferenceSet)
 	result.Added = addedSet
 	result.Removed = removedSet
-	return result, nil
+	if len(addedSet)+len(removedSet) > 0 {
+		return result, nil
+	}
+
+	return nil, nil
 }
 
 func applyAddrReconciliationPlan(handle *netlink.Handle, link netlink.Link, diffSet *NetlinkAddrDifferenceSet) error {
