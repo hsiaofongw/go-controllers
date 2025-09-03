@@ -172,9 +172,7 @@ func (r *BridgeReconciler) ApplyReconcile(ctx context.Context, desiredState inte
 	return pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
 		if r.shouldCreateInterface {
 			link := new(netlink.Dummy)
-			if err := handle.LinkSetName(link, r.interfaceName); err != nil {
-				return fmt.Errorf("failed to set name of link %s: %s", r.interfaceName, err.Error())
-			}
+			link.Attrs().Name = r.interfaceName
 
 			if err := handle.LinkAdd(link); err != nil {
 				return fmt.Errorf("failed to add link %s: %s", r.interfaceName, err.Error())

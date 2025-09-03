@@ -523,12 +523,9 @@ func applyWGOuterConfigDiff(diff *WGOuterConfigDiff, wgCtrlCli *wgctrl.Client, i
 
 func createWGLink(handle *netlink.Handle, intfName string) error {
 	wgLink := new(netlink.Wireguard)
-	err := handle.LinkSetName(wgLink, intfName)
-	if err != nil {
-		return fmt.Errorf("failed to set name of link %s: %s", intfName, err.Error())
-	}
+	wgLink.Attrs().Name = intfName
 
-	err = handle.LinkAdd(wgLink)
+	err := handle.LinkAdd(wgLink)
 	if err != nil {
 		return fmt.Errorf("failed to add link %s: %s", intfName, err.Error())
 	}

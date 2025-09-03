@@ -75,13 +75,17 @@ func (r *VethReconciler) getCurrentAddrs(spec *networkingv1alpha1.NetlinkInterfa
 
 		localAddrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
 		if err != nil {
-			return fmt.Errorf("failed to get local addrs of link %s: %s", r.interfaceName, err.Error())
+			return err
 		}
 
 		res.localAddrs = localAddrs
 
 		return nil
 	})
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get local addrs of link %s: %s", r.interfaceName, err.Error())
+	}
 
 	err = pkgutils.WithNetlinkHandle(peerPid, func(handle *netlink.Handle) error {
 		link, err := handle.LinkByName(peerName)
@@ -291,7 +295,7 @@ func (r *VethReconciler) ApplyReconcile(ctx context.Context, desiredState interf
 	}
 
 	if netlinkSpec.Veth == nil {
-		return fmt.Errorf("vxlan spec is nil")
+		return fmt.Errorf("veth spec is nil")
 	}
 
 	return pkgutils.WithNetlinkHandle(nil, func(handle *netlink.Handle) error {
@@ -313,9 +317,7 @@ func (r *VethReconciler) ApplyReconcile(ctx context.Context, desiredState interf
 				link.PeerNamespace = netlink.NsPid(*peerPid)
 			}
 
-			if err := handle.LinkSetName(link, localName); err != nil {
-				return fmt.Errorf("failed to set name of link %s: %s", r.interfaceName, err.Error())
-			}
+			link.Attrs().Name = localName
 
 			if err := handle.LinkAdd(link); err != nil {
 				return fmt.Errorf("failed to add link %s: %s", r.interfaceName, err.Error())
@@ -351,8 +353,19 @@ func (r *VethReconciler) ApplyReconcile(ctx context.Context, desiredState interf
 			}
 		}
 
-		if _, err := reconcileAdminState(ctx, handle, link, netlinkSpec.Up, false); err != nil {
-			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
+		if r.shouldUpdateAdminState != nil {
+			desiredAdminStateIsUp := *r.shouldUpdateAdminState
+			if desiredAdminStateIsUp {
+				err := handle.LinkSetUp(link)
+				if err != nil {
+					return fmt.Errorf("failed to set up link %s: %s", r.interfaceName, err.Error())
+				}
+			} else {
+				err := handle.LinkSetDown(link)
+				if err != nil {
+					return fmt.Errorf("failed to set down link %s: %s", r.interfaceName, err.Error())
+				}
+			}
 		}
 
 		return nil
