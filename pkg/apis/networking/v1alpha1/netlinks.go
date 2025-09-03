@@ -116,8 +116,8 @@ type NetlinkInterfaceVethPeerSpec struct {
 }
 
 type NetlinkInterfaceVethSpec struct {
-	Local *NetlinkInterfaceVethPeerSpec `json:"localPeer,omitempty"`
-	Peer  *NetlinkInterfaceVethPeerSpec `json:"peerPeer,omitempty"`
+	Local *NetlinkInterfaceVethPeerSpec `json:"local,omitempty"`
+	Peer  *NetlinkInterfaceVethPeerSpec `json:"peer,omitempty"`
 }
 
 // NetlinkInterfaceSpec is the spec for a NetlinkInterface resource
@@ -159,6 +159,17 @@ type NetlinkInterfaceBridgeStatus struct {
 	EnslavedLinks []string `json:"enslavedLinks"`
 }
 
+type NetlinkInterfaceVethPeerStatus struct {
+	Addresses []string `json:"addresses,omitempty"`
+	MTU       *int     `json:"mtu,omitempty"`
+	Flags     []string `json:"flags,omitempty"`
+	OperState string   `json:"operState,omitempty"`
+}
+
+type NetlinkInterfaceVethStatus struct {
+	Peer *NetlinkInterfaceVethPeerStatus `json:"peer,omitempty"`
+}
+
 type NetlinkInterfaceStatus struct {
 	//  Hostname of the node where the interface is provisioned,
 	// or the hostname of the host of the container in case of containerization.
@@ -186,6 +197,8 @@ type NetlinkInterfaceStatus struct {
 	Addresses []string `json:"addresses,omitempty"`
 
 	Bridge *NetlinkInterfaceBridgeStatus `json:"bridge,omitempty"`
+
+	Veth *NetlinkInterfaceVethStatus `json:"veth,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

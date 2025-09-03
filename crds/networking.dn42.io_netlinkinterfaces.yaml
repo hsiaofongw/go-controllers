@@ -104,7 +104,7 @@ spec:
                 type: boolean
               veth:
                 properties:
-                  localPeer:
+                  local:
                     properties:
                       addresses:
                         description: When present, these addresses will take precedence
@@ -143,7 +143,7 @@ spec:
                           over the interface name specified in the NetlinkInterfaceSpec.
                         type: string
                     type: object
-                  peerPeer:
+                  peer:
                     properties:
                       addresses:
                         description: When present, these addresses will take precedence

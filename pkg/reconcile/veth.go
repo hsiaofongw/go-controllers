@@ -12,17 +12,23 @@ import (
 	pkgutils "k8s.io/sample-controller/pkg/utils"
 )
 
-// A VethReconciler implements the Reconciler interface
-type VethReconciler struct {
-	interfaceName          string
-	pid                    *int
-	shouldCreateInterface  bool
+type changeset struct {
 	shouldUpdateMTU        *int
 	shouldUpdateAdminState *bool
-	dockerClient           *dockerSDK.Client
-	recorder               record.EventRecorder
-	localAddrDiffSet       *NetlinkAddrDifferenceSet
-	peerAddrDiffSet        *NetlinkAddrDifferenceSet
+	shouldUpdateAddrs      *NetlinkAddrDifferenceSet
+	shouldCreateInterface  bool
+}
+
+// A VethReconciler implements the Reconciler interface
+type VethReconciler struct {
+	interfaceName string
+	pid           *int
+	dockerClient  *dockerSDK.Client
+	recorder      record.EventRecorder
+
+	localChanges          *changeset
+	peerChanges           *changeset
+	shouldCreateInterface bool
 }
 
 func NewVethReconciler(interfaceName string, pid *int, recorder record.EventRecorder) (*VethReconciler, error) {
@@ -40,32 +46,34 @@ func NewVethReconciler(interfaceName string, pid *int, recorder record.EventReco
 	return reconciler, nil
 }
 
-func (r *VethReconciler) gatherAllUpdates() bool {
-	return r.shouldCreateInterface ||
-		r.localAddrDiffSet != nil ||
-		r.peerAddrDiffSet != nil ||
-		r.shouldUpdateMTU != nil ||
-		r.shouldUpdateAdminState != nil
-
+func (cs *changeset) gatherAllUpdates() bool {
+	return cs.shouldUpdateMTU != nil ||
+		cs.shouldUpdateAdminState != nil ||
+		cs.shouldUpdateAddrs != nil
 }
 
-func (r *VethReconciler) getCurrentAddrs(spec *networkingv1alpha1.NetlinkInterfaceSpec) ([]netlink.Addr, []netlink.Addr, error) {
+func (r *VethReconciler) gatherAllUpdates() bool {
+	return r.shouldCreateInterface ||
+		(r.localChanges != nil && r.localChanges.gatherAllUpdates()) ||
+		(r.peerChanges != nil && r.peerChanges.gatherAllUpdates())
+}
+
+type concernedSpec struct {
+	MTU       *int
+	Addresses []netlink.Addr
+	Up        *bool
+}
+
+func (r *VethReconciler) setStatus(status *networkingv1alpha1.NetlinkInterfaceStatus, spec *networkingv1alpha1.NetlinkInterfaceSpec) error {
 	localPid, peerPid, err := r.getVethPairPIDs(spec)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get veth pair pids of link %s: %s", r.interfaceName, err.Error())
+		return fmt.Errorf("failed to get veth pair pids: %s", err.Error())
 	}
 
 	localName, peerName, err := getInterfaceNames(spec)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get interface names of link %s: %s", r.interfaceName, err.Error())
+		return fmt.Errorf("failed to get interface names: %s", err.Error())
 	}
-
-	type result struct {
-		localAddrs []netlink.Addr
-		peerAddrs  []netlink.Addr
-	}
-
-	res := new(result)
 
 	err = pkgutils.WithNetlinkHandle(localPid, func(handle *netlink.Handle) error {
 		link, err := handle.LinkByName(localName)
@@ -73,37 +81,186 @@ func (r *VethReconciler) getCurrentAddrs(spec *networkingv1alpha1.NetlinkInterfa
 			return fmt.Errorf("failed to get link %s: %s", r.interfaceName, err.Error())
 		}
 
-		localAddrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
+		attrs := link.Attrs()
+		status.MTU = &attrs.MTU
+		addrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get addresses of link %s: %s", r.interfaceName, err.Error())
 		}
-
-		res.localAddrs = localAddrs
+		status.Netlink = networkingv1alpha1.NewFromNetlinkLinkAttrs(attrs, addrs)
+		addrsStrs := make([]string, 0)
+		for _, addr := range addrs {
+			addrsStrs = append(addrsStrs, pkgutils.AddrToString(addr))
+		}
+		status.Addresses = addrsStrs
+		status.OperState = attrs.OperState.String()
+		status.Flags = pkgutils.FlagsToStrings(link.Attrs().Flags)
 
 		return nil
 	})
 
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get local addrs of link %s: %s", r.interfaceName, err.Error())
+		return err
 	}
 
-	err = pkgutils.WithNetlinkHandle(peerPid, func(handle *netlink.Handle) error {
+	return pkgutils.WithNetlinkHandle(peerPid, func(handle *netlink.Handle) error {
 		link, err := handle.LinkByName(peerName)
 		if err != nil {
 			return fmt.Errorf("failed to get link %s: %s", r.interfaceName, err.Error())
 		}
+		peerStatus := new(networkingv1alpha1.NetlinkInterfaceVethPeerStatus)
+		vethStatus := new(networkingv1alpha1.NetlinkInterfaceVethStatus)
 
-		peerAddrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
+		attrs := link.Attrs()
+		peerStatus.MTU = &attrs.MTU
+		addrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
 		if err != nil {
-			return fmt.Errorf("failed to get peer addrs of link %s: %s", r.interfaceName, err.Error())
+			return fmt.Errorf("failed to get addresses of link %s: %s", r.interfaceName, err.Error())
+		}
+		addrsStrs := make([]string, 0)
+		for _, addr := range addrs {
+			addrsStrs = append(addrsStrs, pkgutils.AddrToString(addr))
+		}
+		peerStatus.Addresses = addrsStrs
+		peerStatus.OperState = attrs.OperState.String()
+		peerStatus.Flags = pkgutils.FlagsToStrings(link.Attrs().Flags)
+
+		vethStatus.Peer = peerStatus
+		status.Veth = vethStatus
+		return nil
+	})
+}
+
+func (r *VethReconciler) getLocalSpec(spec *networkingv1alpha1.NetlinkInterfaceSpec) (*concernedSpec, error) {
+	addrs, _, err := r.getPairAddrs(spec)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current addrs of link: %s", err.Error())
+	}
+
+	res := new(concernedSpec)
+	res.Addresses = addrs
+	res.Up = &spec.Up
+	res.MTU = spec.MTU
+
+	return res, nil
+}
+
+func (r *VethReconciler) getPeerSpec(spec *networkingv1alpha1.NetlinkInterfaceSpec) (*concernedSpec, error) {
+	_, addrs, err := r.getPairAddrs(spec)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current addrs of link: %s", err.Error())
+	}
+
+	res := new(concernedSpec)
+	res.Addresses = addrs
+	res.Up = &spec.Up
+	res.MTU = spec.MTU
+
+	return res, nil
+}
+
+// If not changes is happen, return nil on the first value
+func (r *VethReconciler) detectChangeSet(pid *int, intfName string, spec *concernedSpec) (*changeset, error) {
+	type result struct {
+		changes *changeset
+	}
+	res := new(result)
+
+	err := pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
+
+		res.changes = new(changeset)
+
+		link, err := handle.LinkByName(intfName)
+		if err != nil {
+			if _, ok := err.(netlink.LinkNotFoundError); !ok {
+				return fmt.Errorf("failed to get link %s: %s", intfName, err.Error())
+			}
+
+			res.changes.shouldCreateInterface = true
+
+			return nil
 		}
 
-		res.peerAddrs = peerAddrs
+		if spec.MTU != nil {
+			updated, err := reconcileMTU(handle, link, spec.MTU, true)
+			if err != nil {
+				return fmt.Errorf("failed to reconcile mtu of link %s: %s", intfName, err.Error())
+			}
+
+			if updated {
+				res.changes.shouldUpdateMTU = spec.MTU
+			}
+		}
+
+		addrDiff, err := getAddrReconciliationPlan(spec.Addresses, spec.Addresses)
+		if err != nil {
+			return fmt.Errorf("failed to get addr reconciliation plan of link %s: %s", intfName, err.Error())
+		}
+		if addrDiff != nil {
+			res.changes.shouldUpdateAddrs = addrDiff
+		}
+
+		if spec.Up != nil {
+			updated, err := detectAdminStateChange(handle, link, *spec.Up, true)
+			if err != nil {
+				return fmt.Errorf("failed to detect admin state change of link %s: %s", intfName, err.Error())
+			}
+
+			if updated {
+				res.changes.shouldUpdateAdminState = spec.Up
+			}
+		}
 
 		return nil
 	})
 
-	return res.localAddrs, res.peerAddrs, err
+	if res.changes.gatherAllUpdates() {
+		return res.changes, nil
+	}
+
+	return nil, err
+}
+
+func (r *VethReconciler) applyChangeSet(pid *int, intfName string, changes *changeset) error {
+	return pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
+		link, err := handle.LinkByName(intfName)
+		if err != nil {
+			return fmt.Errorf("failed to get link %s: %s", intfName, err.Error())
+		}
+
+		if changes == nil || !changes.gatherAllUpdates() {
+			return nil
+		}
+		if changes.shouldUpdateMTU != nil {
+			err := handle.LinkSetMTU(link, *changes.shouldUpdateMTU)
+			if err != nil {
+				return fmt.Errorf("failed to set mtu of link %s: %s", intfName, err.Error())
+			}
+		}
+
+		if changes.shouldUpdateAdminState != nil {
+			if *changes.shouldUpdateAdminState {
+				err := handle.LinkSetUp(link)
+				if err != nil {
+					return fmt.Errorf("failed to set up link %s: %s", intfName, err.Error())
+				}
+			} else {
+				err := handle.LinkSetDown(link)
+				if err != nil {
+					return fmt.Errorf("failed to set down link %s: %s", intfName, err.Error())
+				}
+			}
+		}
+
+		if changes.shouldUpdateAddrs != nil {
+			err := applyAddrReconciliationPlan(handle, link, changes.shouldUpdateAddrs)
+			if err != nil {
+				return fmt.Errorf("failed to apply addr reconciliation plan of link %s: %s", intfName, err.Error())
+			}
+		}
+
+		return nil
+	})
 }
 
 // Returns: (hasUpdates, error)
@@ -113,101 +270,53 @@ func (r *VethReconciler) DetectChanges(ctx context.Context, desiredState interfa
 		return false, fmt.Errorf("desired state is not a *networkingv1alpha1.NetlinkInterfaceSpec")
 	}
 
+	localPid, peerPid, err := r.getVethPairPIDs(netlinkSpec)
+	if err != nil {
+		return false, fmt.Errorf("failed to get veth pair pids: %s", err.Error())
+	}
+
 	var status *networkingv1alpha1.NetlinkInterfaceStatus
 	if v, ok := statusPtr.(*networkingv1alpha1.NetlinkInterfaceStatus); ok {
 		status = v
 	}
 
-	err := pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
-		_, err := handle.LinkByName(r.interfaceName)
-		if err != nil {
-			if _, ok := err.(netlink.LinkNotFoundError); !ok {
-				return fmt.Errorf("failed to get link %s: %s", r.interfaceName, err.Error())
-			}
-
-			r.shouldCreateInterface = true
-		}
-		return nil
-	})
-
+	localSpec, err := r.getLocalSpec(netlinkSpec)
 	if err != nil {
-		return r.gatherAllUpdates(), err
+		return false, fmt.Errorf("failed to get local spec: %s", err.Error())
 	}
 
-	err = pkgutils.WithNetlinkHandle(r.pid, func(handle *netlink.Handle) error {
-		link, err := handle.LinkByName(r.interfaceName)
-		if err != nil {
-			if _, ok := err.(netlink.LinkNotFoundError); !ok {
-				return fmt.Errorf("failed to get link %s: %s", r.interfaceName, err.Error())
-			}
+	peerSpec, err := r.getPeerSpec(netlinkSpec)
+	if err != nil {
+		return false, fmt.Errorf("failed to get peer spec: %s", err.Error())
+	}
 
-			return nil
-		}
+	localName, peerName, err := getInterfaceNames(netlinkSpec)
+	if err != nil {
+		return false, fmt.Errorf("failed to get interface names: %s", err.Error())
+	}
 
-		if status != nil {
-			mtu := link.Attrs().MTU
-			status.MTU = &mtu
+	r.localChanges, err = r.detectChangeSet(localPid, localName, localSpec)
+	if err != nil {
+		return false, fmt.Errorf("failed to detect changes for local side of veth pair: %s", err.Error())
+	}
 
-			addrs, err := handle.AddrList(link, netlink.FAMILY_ALL)
-			if err != nil {
-				return fmt.Errorf("failed to get addresses of link %s: %s", r.interfaceName, err.Error())
-			}
-			attrs := link.Attrs()
-			status.Netlink = networkingv1alpha1.NewFromNetlinkLinkAttrs(attrs, addrs)
-			status.OperState = attrs.OperState.String()
-			status.Flags = pkgutils.FlagsToStrings(link.Attrs().Flags)
+	if r.localChanges != nil && r.localChanges.shouldCreateInterface {
+		r.shouldCreateInterface = true
+		return r.gatherAllUpdates(), nil
+	}
 
-			addrsStrs := make([]string, 0)
-			for _, addr := range addrs {
-				addrsStrs = append(addrsStrs, pkgutils.AddrToString(addr))
-			}
-			status.Addresses = addrsStrs
-		}
+	r.peerChanges, err = r.detectChangeSet(peerPid, peerName, peerSpec)
+	if err != nil {
+		return false, fmt.Errorf("failed to detect changes for peer side of veth pair: %s", err.Error())
+	}
 
-		updated, err := reconcileMTU(handle, link, netlinkSpec.MTU, true)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
-		}
+	err = r.setStatus(status, netlinkSpec)
 
-		if updated {
-			mtu := *netlinkSpec.MTU
-			r.shouldUpdateMTU = &mtu
-		}
+	if err != nil {
+		return r.gatherAllUpdates(), fmt.Errorf("failed to set status: %s", err.Error())
+	}
 
-		localAddrs, peerAddrs, err := r.getPairAddrs(netlinkSpec)
-		if err != nil {
-			return fmt.Errorf("failed to get pair addrs of link %s: %s", r.interfaceName, err.Error())
-		}
-
-		nlLocalAddrs, nlPeerAddrs, err := r.getCurrentAddrs(netlinkSpec)
-		if err != nil {
-			return fmt.Errorf("failed to get current addrs of link %s: %s", r.interfaceName, err.Error())
-		}
-
-		r.localAddrDiffSet, err = getAddrReconciliationPlan(localAddrs, nlLocalAddrs)
-		if err != nil {
-			return fmt.Errorf("failed to get addr reconciliation plan of link %s: %s", r.interfaceName, err.Error())
-		}
-
-		r.peerAddrDiffSet, err = getAddrReconciliationPlan(peerAddrs, nlPeerAddrs)
-		if err != nil {
-			return fmt.Errorf("failed to get addr reconciliation plan of link %s: %s", r.interfaceName, err.Error())
-		}
-
-		updated, err = reconcileAdminState(ctx, handle, link, netlinkSpec.Up, true)
-		if err != nil {
-			return fmt.Errorf("failed to reconcile admin state of link %s: %s", r.interfaceName, err.Error())
-		}
-
-		if updated {
-			desiredAdminState := netlinkSpec.Up
-			r.shouldUpdateAdminState = &desiredAdminState
-		}
-
-		return nil
-	})
-
-	return r.gatherAllUpdates(), err
+	return r.gatherAllUpdates(), nil
 }
 
 func getInterfaceNames(spec *networkingv1alpha1.NetlinkInterfaceSpec) (string, string, error) {
@@ -261,7 +370,6 @@ func (r *VethReconciler) getVethPairPIDs(spec *networkingv1alpha1.NetlinkInterfa
 }
 
 func (r *VethReconciler) getPairAddrs(spec *networkingv1alpha1.NetlinkInterfaceSpec) ([]netlink.Addr, []netlink.Addr, error) {
-
 	localAddrSpecs := spec.Addresses
 	var peerAddrSpecs []networkingv1alpha1.NetlinkInterfaceAddressSpec
 	if spec.Veth != nil {
@@ -298,19 +406,19 @@ func (r *VethReconciler) ApplyReconcile(ctx context.Context, desiredState interf
 		return fmt.Errorf("veth spec is nil")
 	}
 
+	localPid, peerPid, err := r.getVethPairPIDs(netlinkSpec)
+	if err != nil {
+		return fmt.Errorf("failed to get veth pair pids: %s", err.Error())
+	}
+
+	localName, peerName, err := getInterfaceNames(netlinkSpec)
+	if err != nil {
+		return fmt.Errorf("failed to get interface names: %s", err.Error())
+	}
+
 	return pkgutils.WithNetlinkHandle(nil, func(handle *netlink.Handle) error {
 		if r.shouldCreateInterface {
 			link := new(netlink.Veth)
-
-			localName, peerName, err := getInterfaceNames(netlinkSpec)
-			if err != nil {
-				return fmt.Errorf("failed to get interface names: %s", err.Error())
-			}
-
-			localPid, peerPid, err := r.getVethPairPIDs(netlinkSpec)
-			if err != nil {
-				return fmt.Errorf("failed to get veth pair pids: %s", err.Error())
-			}
 
 			link.PeerName = peerName
 			if peerPid != nil {
@@ -320,13 +428,13 @@ func (r *VethReconciler) ApplyReconcile(ctx context.Context, desiredState interf
 			link.Attrs().Name = localName
 
 			if err := handle.LinkAdd(link); err != nil {
-				return fmt.Errorf("failed to add link %s: %s", r.interfaceName, err.Error())
+				return fmt.Errorf("failed to add link %s: %s", localName, err.Error())
 			}
 
 			if localPid != nil {
 				err := handle.LinkSetNsPid(link, *localPid)
 				if err != nil {
-					return fmt.Errorf("failed to set ns pid of link %s: %s", r.interfaceName, err.Error())
+					return fmt.Errorf("failed to set ns pid of link %s: %s", localName, err.Error())
 				}
 			}
 
@@ -334,37 +442,17 @@ func (r *VethReconciler) ApplyReconcile(ctx context.Context, desiredState interf
 			return nil
 		}
 
-		link, _ := handle.LinkByName(r.interfaceName)
-		if _, err := reconcileMTU(handle, link, r.shouldUpdateMTU, false); err != nil {
-			return fmt.Errorf("failed to reconcile mtu of link %s: %s", r.interfaceName, err.Error())
-		}
-
-		if r.localAddrDiffSet != nil {
-			err := applyAddrReconciliationPlan(handle, link, r.localAddrDiffSet)
+		if r.localChanges != nil && r.localChanges.gatherAllUpdates() {
+			err := r.applyChangeSet(localPid, localName, r.localChanges)
 			if err != nil {
-				return fmt.Errorf("failed to apply local addr reconciliation plan of link %s: %s", r.interfaceName, err.Error())
+				return fmt.Errorf("failed to apply changes for local side of veth pair: %s", err.Error())
 			}
 		}
 
-		if r.peerAddrDiffSet != nil {
-			err := applyAddrReconciliationPlan(handle, link, r.peerAddrDiffSet)
+		if r.peerChanges != nil && r.peerChanges.gatherAllUpdates() {
+			err := r.applyChangeSet(peerPid, peerName, r.peerChanges)
 			if err != nil {
-				return fmt.Errorf("failed to apply peer addr reconciliation plan of link %s: %s", r.interfaceName, err.Error())
-			}
-		}
-
-		if r.shouldUpdateAdminState != nil {
-			desiredAdminStateIsUp := *r.shouldUpdateAdminState
-			if desiredAdminStateIsUp {
-				err := handle.LinkSetUp(link)
-				if err != nil {
-					return fmt.Errorf("failed to set up link %s: %s", r.interfaceName, err.Error())
-				}
-			} else {
-				err := handle.LinkSetDown(link)
-				if err != nil {
-					return fmt.Errorf("failed to set down link %s: %s", r.interfaceName, err.Error())
-				}
+				return fmt.Errorf("failed to apply changes for peer side of veth pair: %s", err.Error())
 			}
 		}
 
@@ -374,10 +462,8 @@ func (r *VethReconciler) ApplyReconcile(ctx context.Context, desiredState interf
 
 func (r *VethReconciler) ResetState() {
 	r.shouldCreateInterface = false
-	r.shouldUpdateMTU = nil
-	r.shouldUpdateAdminState = nil
-	r.localAddrDiffSet = nil
-	r.peerAddrDiffSet = nil
+	r.localChanges = nil
+	r.peerChanges = nil
 }
 
 // if the interface should be placed in current namespace, return nil

@@ -124,6 +124,15 @@ func reconcileAdminState(ctx context.Context, handle *netlink.Handle, link netli
 }
 
 // Returns: (updated, error)
+func detectAdminStateChange(handle *netlink.Handle, link netlink.Link, up bool, dryRun bool) (bool, error) {
+	if up {
+		return link.Attrs().Flags&net.FlagUp == 0, nil
+	} else {
+		return link.Attrs().Flags&net.FlagUp == net.FlagUp, nil
+	}
+}
+
+// Returns: (updated, error)
 func reconcileEnslavedLinks(handle *netlink.Handle, master netlink.Link, slaves []string, dryRun bool) (bool, *EnslavedLinksDifferenceSet, error) {
 	diffSet := new(EnslavedLinksDifferenceSet)
 

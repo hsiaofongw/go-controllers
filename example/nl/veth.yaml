@@ -1,0 +1,24 @@
+apiVersion: networking.dn42.io/v1alpha1
+kind: NetlinkInterface
+metadata:
+  name: lax1-veth1
+  finalizers:
+    - netlinkinterface.networking.dn42.io/finalizer
+spec:
+  node: lax1
+  interfaceName: veth1-a
+  type: veth
+  veth:
+    peer:
+      interfaceName: veth1-b
+      container:
+        docker:
+          name: agent2
+      addresses:
+        - ipcidr: "fe80::eeee:2/64"
+  addresses:
+    - ipcidr: "fe80::eeee:1/64"
+  up: true
+  container:
+    docker:
+      name: agent1
