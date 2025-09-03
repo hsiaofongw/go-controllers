@@ -364,6 +364,24 @@ spec:
                   This represents the operational state of the interface.
                   Operational state is all about how it currently looks like.
                 type: string
+              veth:
+                properties:
+                  peer:
+                    properties:
+                      addresses:
+                        items:
+                          type: string
+                        type: array
+                      flags:
+                        items:
+                          type: string
+                        type: array
+                      mtu:
+                        type: integer
+                      operState:
+                        type: string
+                    type: object
+                type: object
             required:
             - hostname
             - nodename

@@ -310,10 +310,11 @@ func (r *VethReconciler) DetectChanges(ctx context.Context, desiredState interfa
 		return false, fmt.Errorf("failed to detect changes for peer side of veth pair: %s", err.Error())
 	}
 
-	err = r.setStatus(status, netlinkSpec)
-
-	if err != nil {
-		return r.gatherAllUpdates(), fmt.Errorf("failed to set status: %s", err.Error())
+	if status != nil {
+		err := r.setStatus(status, netlinkSpec)
+		if err != nil {
+			return r.gatherAllUpdates(), fmt.Errorf("failed to set status: %s", err.Error())
+		}
 	}
 
 	return r.gatherAllUpdates(), nil
