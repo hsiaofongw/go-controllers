@@ -11,6 +11,7 @@ import (
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"k8s.io/client-go/tools/record"
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	pkgutils "k8s.io/sample-controller/pkg/utils"
 )
@@ -37,10 +38,11 @@ type WGReconciler struct {
 
 	wgOuterConfigDiff *WGOuterConfigDiff
 	peersDiff         *PeersDiff
+	recorder          record.EventRecorder
 }
 
-func NewWGReconciler(interfaceName string, pid *int) (*WGReconciler, error) {
-	return &WGReconciler{interfaceName: interfaceName, pid: pid}, nil
+func NewWGReconciler(interfaceName string, pid *int, recorder record.EventRecorder) (*WGReconciler, error) {
+	return &WGReconciler{interfaceName: interfaceName, pid: pid, recorder: recorder}, nil
 }
 
 func (r *WGReconciler) setStatus(status *networkingv1alpha1.WireGuardInterfaceStatus) error {

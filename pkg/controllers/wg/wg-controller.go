@@ -57,7 +57,7 @@ import (
 	pkgreconcile "k8s.io/sample-controller/pkg/reconcile"
 )
 
-const controllerAgentName = "sample-controller"
+const controllerAgentName = "wg-controller"
 
 const (
 	// FieldManager distinguishes this controller from other things writing to API objects
@@ -121,7 +121,7 @@ func NewController(
 	eventBroadcaster := record.NewBroadcaster(record.WithContext(ctx))
 	eventBroadcaster.StartStructuredLogging(0)
 	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: config.Kubeclientset.CoreV1().Events("")})
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
+	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName, Host: config.Nodename})
 	ratelimiter := workqueue.NewTypedMaxOfRateLimiter(
 		workqueue.NewTypedItemExponentialFailureRateLimiter[cache.ObjectName](5*time.Millisecond, 1000*time.Second),
 		&workqueue.TypedBucketRateLimiter[cache.ObjectName]{Limiter: rate.NewLimiter(rate.Limit(50), 300)},
@@ -396,7 +396,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	if needReconcile {
 		logger.Info("Need to reconcile", "objectReference", klog.KObj(wgObj), "observedGeneration", wgObj.Status.ObservedGeneration, "generation", wgObj.GetGeneration())
 
-		reconciler, err := pkgreconcile.NewWGReconciler(wgObj.Spec.InterfaceName, pid)
+		reconciler, err := pkgreconcile.NewWGReconciler(wgObj.Spec.InterfaceName, pid, c.recorder)
 		if err != nil {
 			return fmt.Errorf("failed to create reconciler: %s", err.Error())
 		}
@@ -469,7 +469,7 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 		Nodename: c.nodename,
 	}
 
-	reconciler, err := pkgreconcile.NewWGReconciler(wgObjCopy.Spec.InterfaceName, pid)
+	reconciler, err := pkgreconcile.NewWGReconciler(wgObjCopy.Spec.InterfaceName, pid, c.recorder)
 	if err != nil {
 		return fmt.Errorf("failed to create reconciler: %s", err.Error())
 	}

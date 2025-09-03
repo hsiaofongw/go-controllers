@@ -53,7 +53,7 @@ import (
 	v1alpha1Lister "k8s.io/sample-controller/pkg/generated/listers/networking/v1alpha1"
 )
 
-const controllerAgentName = "sample-controller"
+const controllerAgentName = "netlink-controller"
 
 const (
 	LabelResourceId     = "networkplan.networking.dn42.io/resource-id"
@@ -116,7 +116,7 @@ func NewController(
 	eventBroadcaster := record.NewBroadcaster(record.WithContext(ctx))
 	eventBroadcaster.StartStructuredLogging(0)
 	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: config.Kubeclientset.CoreV1().Events("")})
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
+	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName, Host: config.NodeName})
 	ratelimiter := workqueue.NewTypedMaxOfRateLimiter(
 		workqueue.NewTypedItemExponentialFailureRateLimiter[cache.ObjectName](5*time.Millisecond, 1000*time.Second),
 		&workqueue.TypedBucketRateLimiter[cache.ObjectName]{Limiter: rate.NewLimiter(rate.Limit(50), 300)},
@@ -349,7 +349,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	}
 
 	reconcilerFactoryMap := make(map[string]pkgreconcile.ReconcilerFactory)
-	registerReconcilerFactory(reconcilerFactoryMap, nlObj.Spec.InterfaceName, pid)
+	registerReconcilerFactory(reconcilerFactoryMap, nlObj.Spec.InterfaceName, pid, c.recorder)
 
 	needReconcile := nlObj.GetGeneration() != nlObj.Status.ObservedGeneration
 	if needReconcile {
@@ -453,7 +453,7 @@ func (c *Controller) getCurrentNetlinkInterfaceStatus(ctx context.Context, nlObj
 	}
 
 	reconcilerFactoryMap := make(map[string]pkgreconcile.ReconcilerFactory)
-	registerReconcilerFactory(reconcilerFactoryMap, nlObj.Spec.InterfaceName, pid)
+	registerReconcilerFactory(reconcilerFactoryMap, nlObj.Spec.InterfaceName, pid, c.recorder)
 
 	reconcilerFactory, ok := reconcilerFactoryMap[string(nlObj.Spec.Type)]
 	if !ok {
@@ -514,17 +514,17 @@ func (c *Controller) getDockerContainerPid(containerName string) (int, error) {
 	return p, nil
 }
 
-func registerReconcilerFactory(reconcilerFactoryMap map[string]pkgreconcile.ReconcilerFactory, interfaceName string, pid *int) {
+func registerReconcilerFactory(reconcilerFactoryMap map[string]pkgreconcile.ReconcilerFactory, interfaceName string, pid *int, recorder record.EventRecorder) {
 	reconcilerFactoryMap[string(networkingv1alpha1.NetlinkInterfaceTypeDummy)] = func() (pkgreconcile.Reconciler, error) {
-		return pkgreconcile.NewDummyReconciler(interfaceName, pid)
+		return pkgreconcile.NewDummyReconciler(interfaceName, pid, recorder)
 	}
 	reconcilerFactoryMap[string(networkingv1alpha1.NetlinkInterfaceTypeBridge)] = func() (pkgreconcile.Reconciler, error) {
-		return pkgreconcile.NewBridgeReconciler(interfaceName, pid)
+		return pkgreconcile.NewBridgeReconciler(interfaceName, pid, recorder)
 	}
 	reconcilerFactoryMap[string(networkingv1alpha1.NetlinkInterfaceTypeVXLAN)] = func() (pkgreconcile.Reconciler, error) {
-		return pkgreconcile.NewVXLANReconciler(interfaceName, pid)
+		return pkgreconcile.NewVXLANReconciler(interfaceName, pid, recorder)
 	}
 	reconcilerFactoryMap[string(networkingv1alpha1.NetlinkInterfaceTypeVeth)] = func() (pkgreconcile.Reconciler, error) {
-		return pkgreconcile.NewVethReconciler(interfaceName, pid)
+		return pkgreconcile.NewVethReconciler(interfaceName, pid, recorder)
 	}
 }

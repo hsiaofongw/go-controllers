@@ -6,6 +6,7 @@ import (
 	"net"
 
 	"github.com/vishvananda/netlink"
+	"k8s.io/client-go/tools/record"
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	pkgutils "k8s.io/sample-controller/pkg/utils"
 )
@@ -18,12 +19,14 @@ type VXLANReconciler struct {
 	shouldUpdateMTU        *int
 	shouldUpdateAdminState *bool
 	shouldUpdateAddrs      *NetlinkAddrDifferenceSet
+	recorder               record.EventRecorder
 }
 
-func NewVXLANReconciler(interfaceName string, pid *int) (*VXLANReconciler, error) {
+func NewVXLANReconciler(interfaceName string, pid *int, recorder record.EventRecorder) (*VXLANReconciler, error) {
 	reconciler := new(VXLANReconciler)
 	reconciler.interfaceName = interfaceName
 	reconciler.pid = pid
+	reconciler.recorder = recorder
 	return reconciler, nil
 }
 

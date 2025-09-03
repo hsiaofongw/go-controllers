@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/vishvananda/netlink"
+	"k8s.io/client-go/tools/record"
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	pkgutils "k8s.io/sample-controller/pkg/utils"
 )
@@ -17,12 +18,14 @@ type DummyReconciler struct {
 	shouldUpdateMTU        *int
 	shouldUpdateAdminState *bool
 	shouldUpdateAddrs      *NetlinkAddrDifferenceSet
+	recorder               record.EventRecorder
 }
 
-func NewDummyReconciler(interfaceName string, pid *int) (*DummyReconciler, error) {
+func NewDummyReconciler(interfaceName string, pid *int, recorder record.EventRecorder) (*DummyReconciler, error) {
 	dummyReconciler := new(DummyReconciler)
 	dummyReconciler.interfaceName = interfaceName
 	dummyReconciler.pid = pid
+	dummyReconciler.recorder = recorder
 	return dummyReconciler, nil
 }
 

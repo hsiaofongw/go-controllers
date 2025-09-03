@@ -7,6 +7,7 @@ import (
 	dockerUtil "example.com/go-util/pkg/util/docker"
 	dockerSDK "github.com/docker/docker/client"
 	"github.com/vishvananda/netlink"
+	"k8s.io/client-go/tools/record"
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	pkgutils "k8s.io/sample-controller/pkg/utils"
 )
@@ -19,12 +20,12 @@ type VethReconciler struct {
 	shouldUpdateMTU        *int
 	shouldUpdateAdminState *bool
 	dockerClient           *dockerSDK.Client
-
-	localAddrDiffSet *NetlinkAddrDifferenceSet
-	peerAddrDiffSet  *NetlinkAddrDifferenceSet
+	recorder               record.EventRecorder
+	localAddrDiffSet       *NetlinkAddrDifferenceSet
+	peerAddrDiffSet        *NetlinkAddrDifferenceSet
 }
 
-func NewVethReconciler(interfaceName string, pid *int) (*VethReconciler, error) {
+func NewVethReconciler(interfaceName string, pid *int, recorder record.EventRecorder) (*VethReconciler, error) {
 	reconciler := new(VethReconciler)
 	reconciler.interfaceName = interfaceName
 	reconciler.pid = pid
@@ -34,6 +35,7 @@ func NewVethReconciler(interfaceName string, pid *int) (*VethReconciler, error) 
 		return nil, fmt.Errorf("failed to create docker client: %s", err.Error())
 	}
 	reconciler.dockerClient = dockerClient
+	reconciler.recorder = recorder
 
 	return reconciler, nil
 }
@@ -255,7 +257,6 @@ func (r *VethReconciler) getVethPairPIDs(spec *networkingv1alpha1.NetlinkInterfa
 }
 
 func (r *VethReconciler) getPairAddrs(spec *networkingv1alpha1.NetlinkInterfaceSpec) ([]netlink.Addr, []netlink.Addr, error) {
-	// TODO: implement this
 
 	localAddrSpecs := spec.Addresses
 	var peerAddrSpecs []networkingv1alpha1.NetlinkInterfaceAddressSpec

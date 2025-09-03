@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/vishvananda/netlink"
+	"k8s.io/client-go/tools/record"
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	pkgutils "k8s.io/sample-controller/pkg/utils"
 )
@@ -19,12 +20,14 @@ type BridgeReconciler struct {
 	shouldCreateInterface     bool
 
 	shouldUpdateAddrs *NetlinkAddrDifferenceSet
+	recorder          record.EventRecorder
 }
 
-func NewBridgeReconciler(interfaceName string, pid *int) (*BridgeReconciler, error) {
+func NewBridgeReconciler(interfaceName string, pid *int, recorder record.EventRecorder) (*BridgeReconciler, error) {
 	bridgeReconciler := new(BridgeReconciler)
 	bridgeReconciler.interfaceName = interfaceName
 	bridgeReconciler.pid = pid
+	bridgeReconciler.recorder = recorder
 	return bridgeReconciler, nil
 }
 

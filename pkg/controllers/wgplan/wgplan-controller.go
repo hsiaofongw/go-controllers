@@ -60,7 +60,7 @@ import (
 	v1alpha1Lister "k8s.io/sample-controller/pkg/generated/listers/networking/v1alpha1"
 )
 
-const controllerAgentName = "sample-controller"
+const controllerAgentName = "wgplan-controller"
 
 const (
 	LabelResourceId     = "networkplan.networking.dn42.io/resource-id"
@@ -125,10 +125,20 @@ func NewController(
 	utilruntime.Must(samplescheme.AddToScheme(scheme.Scheme))
 	logger.V(4).Info("Creating event broadcaster")
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		logger.Error(err, "Error getting hostname")
+		return nil
+	}
+
 	eventBroadcaster := record.NewBroadcaster(record.WithContext(ctx))
 	eventBroadcaster.StartStructuredLogging(0)
 	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: config.Kubeclientset.CoreV1().Events("")})
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
+
+	// wgplan-controller is not a node-specific controller,
+	// so there is no such thing like 'nodename' but only 'hostname'
+	// which is where the controller is running.
+	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName, Host: hostname})
 	ratelimiter := workqueue.NewTypedMaxOfRateLimiter(
 		workqueue.NewTypedItemExponentialFailureRateLimiter[cache.ObjectName](5*time.Millisecond, 1000*time.Second),
 		&workqueue.TypedBucketRateLimiter[cache.ObjectName]{Limiter: rate.NewLimiter(rate.Limit(50), 300)},
