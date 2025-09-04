@@ -169,7 +169,7 @@ kubectl apply -f ./example/nl/vxlan.yaml
 
 Doing so will create two VTEPs, one on container agent1, the another one on container agent2, named 'vxlan1' and 'vxlan2' respectively, assigned IPv6 link-local address as `fe80::1%vxlan1` and `fe80::2%vxlan2`.
 
-Then you can ping this multicast address to discovery the other VTEPs:
+Afterwards, you can ping the multicast 'All Nodes' address `ff02::1` to discover other VTEPs:
 
 ```sh
 docker exec -it agent1 ping -c 3 ff02::1%vxlan1
@@ -194,7 +194,7 @@ Apply [./example/nl/veth.yaml](./example/nl/veth.yaml) would create a pair of ve
 kubectl apply -f ./example/nl/veth.yaml
 ```
 
-Ping `ff02::1` to discovery the other end of the veth pair:
+Ping `ff02::1` to discover the other end of the veth pair:
 
 ```sh
 docker exec -it agent1 ping -c 3 ff02::1%veth1-a
