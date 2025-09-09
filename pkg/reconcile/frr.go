@@ -1,9 +1,11 @@
 package reconcile
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 
@@ -46,11 +48,22 @@ func (a *FRRVtyshAgent) ExecuteCommands(commands []string) ([]byte, error) {
 	return stdout, nil
 }
 
+func (a *FRRVtyshAgent) ExecuteCommandIO(stdin io.Reader) ([]byte, error) {
+	cmd := exec.Command(a.vtyshPath)
+	cmd.Stdin = stdin
+	stdout, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute commands: %v", err)
+	}
+
+	return stdout, nil
+}
+
 type FRROSPFv2Reconciler struct {
 	vtyshAgent             *FRRVtyshAgent
 	needEnableOSPFv2Router bool
 	addedIntfList          map[string]interface{}
-	removedIntfList        map[string]interface{}
+	removedIntfList        map[string]*intf
 }
 
 func NewFRROSPFv2Reconciler(vtyshPath string) (*FRROSPFv2Reconciler, error) {
@@ -70,7 +83,15 @@ func (r *FRROSPFv2Reconciler) gatherAllUpdates() bool {
 		r.removedIntfList != nil
 }
 
-func (r *FRROSPFv2Reconciler) getInterfaceList() (map[string]interface{}, error) {
+type intf struct {
+	Area string `json:"area,omitempty"`
+}
+
+type intflist struct {
+	Interfaces map[string]intf `json:"interfaces,omitempty"`
+}
+
+func (r *FRROSPFv2Reconciler) getInterfaceList() (map[string]*intf, error) {
 	output, err := r.vtyshAgent.ExecuteCommand("show ip ospf interface json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute command: %v", err)
@@ -80,22 +101,16 @@ func (r *FRROSPFv2Reconciler) getInterfaceList() (map[string]interface{}, error)
 		return nil, nil
 	}
 
-	type intf interface{}
-
-	type intflist struct {
-		Interfaces map[string]intf `json:"interfaces,omitempty"`
-	}
-
 	intflistobj := new(intflist)
 	err = json.Unmarshal(output, intflistobj)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal output: %v", err)
 	}
 
-	res := make(map[string]interface{})
+	res := make(map[string]*intf)
 	if intflistobj.Interfaces != nil {
 		for intfName, intfObj := range intflistobj.Interfaces {
-			res[intfName] = intfObj
+			res[intfName] = &intfObj
 		}
 	}
 
@@ -136,10 +151,10 @@ func (r *FRROSPFv2Reconciler) DetectChanges(ctx context.Context, desiredState in
 		}
 	}
 
-	removedIntfList := make(map[string]interface{})
-	for intfName := range currentIntfList {
+	removedIntfList := make(map[string]*intf)
+	for intfName, intfObj := range currentIntfList {
 		if _, ok := specIntfList[intfName]; !ok {
-			removedIntfList[intfName] = true
+			removedIntfList[intfName] = intfObj
 		}
 	}
 
@@ -167,8 +182,8 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 
 	if r.removedIntfList != nil {
 		for intfName := range r.removedIntfList {
-			_, err := r.vtyshAgent.ExecuteCommand(fmt.Sprintf("no ip ospf interface %s", intfName))
-			if err != nil {
+			intfobj := r.removedIntfList[intfName]
+			if err := r.deleteInterface(intfName, intfobj); err != nil {
 				return fmt.Errorf("failed to delete interface %s: %v", intfName, err)
 			}
 		}
@@ -186,8 +201,61 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 	return nil
 }
 
+func (r *FRROSPFv2Reconciler) deleteInterface(intfName string, intfobj *intf) error {
+
+	cmd := `
+	configure
+		interface %s
+		no ip ospf area %s
+		exit
+	`
+	cmd = strings.TrimSpace(cmd)
+	cmd = fmt.Sprintf(cmd, intfName, intfobj.Area)
+	cmd = fmt.Sprintf("%s\n", cmd)
+	cmdBuf := bytes.NewBufferString(cmd)
+	_, err := r.vtyshAgent.ExecuteCommandIO(cmdBuf)
+	if err != nil {
+		return fmt.Errorf("failed to delete interface %s: %v", intfName, err)
+	}
+	return nil
+}
+
 func (r *FRROSPFv2Reconciler) addInterface(intfName string, intfSpec *networkingv1alpha1.OSPFProtocolInterfaceSpec) error {
-	// todo
+	if intfSpec.Passive != nil && *intfSpec.Passive {
+		cmd := `
+		configure
+			interface %s
+				ip ospf area %s
+				ip ospf passive
+			exit
+		exit
+		`
+
+		cmd = strings.TrimSpace(cmd)
+		cmd = fmt.Sprintf(cmd, intfName, intfSpec.Area)
+		cmd = fmt.Sprintf("%s\n", cmd)
+		cmdBuf := bytes.NewBufferString(cmd)
+		_, err := r.vtyshAgent.ExecuteCommandIO(cmdBuf)
+		if err != nil {
+			return fmt.Errorf("failed to add interface %s: %v", intfName, err)
+		}
+		return nil
+	}
+
+	cmd := `
+	configure
+		interface %s
+		ip ospf area %s
+		ip ospf network %s
+	`
+	cmd = strings.TrimSpace(cmd)
+	cmd = fmt.Sprintf(cmd, intfName, intfSpec.Area, intfSpec.NetworkType)
+	cmd = fmt.Sprintf("%s\n", cmd)
+	cmdBuf := bytes.NewBufferString(cmd)
+	_, err := r.vtyshAgent.ExecuteCommandIO(cmdBuf)
+	if err != nil {
+		return fmt.Errorf("failed to add interface %s: %v", intfName, err)
+	}
 
 	return nil
 }
