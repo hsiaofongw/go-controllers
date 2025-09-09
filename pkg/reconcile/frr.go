@@ -190,6 +190,9 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 			return fmt.Errorf("routerID is required")
 		}
 
+		if err := r.enableOSPFv2Router(routerId); err != nil {
+			return fmt.Errorf("failed to enable OSPFv2 router: %v", err)
+		}
 	}
 
 	if r.removedIntfList != nil {
@@ -210,6 +213,21 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 		}
 	}
 
+	return nil
+}
+
+func (r *FRROSPFv2Reconciler) enableOSPFv2Router(routerId string) error {
+	cmds := make([]string, 0)
+	cmds = append(cmds, "configure")
+	cmds = append(cmds, "router ospf")
+	cmds = append(cmds, fmt.Sprintf("ospf router-id %s", routerId))
+	cmds = append(cmds, "exit")
+	cmds = append(cmds, "exit")
+
+	_, err := r.vtyshAgent.ExecuteMultilineCommand(cmds)
+	if err != nil {
+		return fmt.Errorf("failed to enable OSPFv2 router: %v", err)
+	}
 	return nil
 }
 
