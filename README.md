@@ -1,4 +1,4 @@
-# WireGuard controller
+# Network controller
 
 > "What if the desired state of the network can be defined in a single place, and declaratively?"
 
@@ -12,10 +12,11 @@ Alternatively, you can manually create a few `WireGuardInterface` resource objec
 
 ## Core Features
 
-1. Intention-oriented, declarative WireGuard network management.
-2. Multi-node support and container-awareness.
+1. Intention-oriented, declarative linux network management.
+2. Multi-nodes support and container-awareness.
 3. Flexible configuration (network-wide or per-node customization).
 4. Self-healing: gracefully deals with abrupt misconfiguration and reconverges automatically.
+5. Multi-tenants and RBAC (on its way).
 
 ## Install Dependencies
 
