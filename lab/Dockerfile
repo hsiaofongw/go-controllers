@@ -2,6 +2,15 @@ FROM ubuntu:24.04
 
 ARG TARGETPLATFORM
 
+# Add FRRouting GPG key
+ADD https://deb.frrouting.org/frr/keys.gpg /usr/share/keyrings/frrouting.gpg
+
+FRRVER="frr-stable"
+
+RUN \
+  echo deb '[signed-by=/usr/share/keyrings/frrouting.gpg]' https://deb.frrouting.org/frr \
+  noble $FRRVER | tee -a /etc/apt/sources.list.d/frr.list
+
 # Set Go environment variables
 ENV GOPATH=/root/go
 ENV GOBIN=$GOPATH/bin
@@ -17,6 +26,7 @@ RUN \
     iputils-ping \
     dnsutils \
     wireguard \
+    frr frr-pythontools \
     git && \
     rm -rf /var/lib/apt/lists/*
 
@@ -30,3 +40,4 @@ ARG KUBECTL_VERSION=v1.33.4
 RUN echo "Installing kubectl ${KUBECTL_VERSION} for ${TARGETPLATFORM} ..."
 ADD "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${TARGETPLATFORM}/kubectl" /usr/local/bin/kubectl
 RUN chmod +x /usr/local/bin/kubectl
+

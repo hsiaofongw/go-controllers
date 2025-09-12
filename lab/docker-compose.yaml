@@ -1,7 +1,31 @@
 volumes:
   home: {}
+  frrbin: {}
+  frrsockets: {}
 services:
   # agentx is the master controller that manages the other agents
+  # nlcontroller:
+  #   image: agent:test
+  #   command:
+  #     - /root/projects/go-projects/go-controller/bin/nl-controller
+  #     - '--kubeconfig=/root/.kube/config'
+  #     - '-v'
+  #     - '4'
+  #   stdin_open: true
+  #   tty: true
+  #   cap_add:
+  #     - NET_ADMIN
+  #     - SYS_ADMIN
+  #   pid: host
+  #   network_mode: host
+  #   volumes:
+  #     - home:/root
+  #     - ../../:/root/projects/go-projects
+  #     - ../../../../.kube/config:/root/.kube/config:ro
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   working_dir: /root
+  #   hostname: nlcontroller
+  #   container_name: nlcontroller
   agentx:
     image: agent:test
     command:
