@@ -77,7 +77,7 @@ const (
 	FieldManager = controllerAgentName
 )
 
-// Controller is the controller implementation for WireGuardInterface resources
+// Controller is the controller implementation for WireGuardNetworkPlan resources
 type Controller struct {
 	dockerClient *dockerSDK.Client
 	// kubeclientset is a standard kubernetes clientset
@@ -170,7 +170,7 @@ func NewController(
 
 	logger.Info("Setting up event handlers")
 
-	// Set up event handler for when WireGuardNetworkPlan resources change
+	// Set up event handler for when WireGuardNetworkPlan resources change.
 	config.WgPlanInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			objWgPlan, _ := obj.(*networkingv1alpha1.WireGuardNetworkPlan)
@@ -247,7 +247,7 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	}
 
 	logger.Info("Starting workers", "count", workers)
-	// Launch two workers to process WireGuardInterface resources
+	// Launch two workers to process WireGuardNetworkPlan resources
 	for i := 0; i < workers; i++ {
 		go wait.UntilWithContext(ctx, c.runWorker, time.Second)
 	}
@@ -307,9 +307,9 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 	return true
 }
 
-// enqueueWG takes a WireGuardInterface resource and converts it into a namespace/name
+// enqueueWG takes a WireGuardNetworkPlan resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should *not* be
-// passed resources of any type other than WireGuardInterface.
+// passed resources of any type other than WireGuardNetworkPlan.
 func (c *Controller) enqueueWG(obj interface{}) {
 	if objectRef, err := cache.ObjectToName(obj); err != nil {
 		utilruntime.HandleError(err)
@@ -345,13 +345,13 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 		wgIntfObjs, err := c.wgLister.List(selectorOfThis)
 		if err != nil {
-			logger.Error(err, "Failed to list WireGuardInterface resources for cleanup", "objectReference", klog.KObj(wgPlanObj))
+			logger.Error(err, "Failed to list WireGuardNetworkPlan resources for cleanup", "objectReference", klog.KObj(wgPlanObj))
 		}
 
 		for _, wgIntfObj := range wgIntfObjs {
 			err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces(c.ns).Delete(context.Background(), wgIntfObj.Name, metav1.DeleteOptions{})
 			if err != nil {
-				logger.Error(err, "Failed to delete WireGuardInterface resource for cleanup", "objectReference", klog.KObj(wgIntfObj))
+				logger.Error(err, "Failed to delete WireGuardNetworkPlan resource for cleanup", "objectReference", klog.KObj(wgIntfObj))
 			}
 		}
 
@@ -360,7 +360,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardNetworkPlans(c.ns).Update(context.Background(), wgPlanObjCopy, metav1.UpdateOptions{})
 		if err != nil {
 			if !k8serrors.IsNotFound(err) {
-				return fmt.Errorf("failed to clear finalizers from WireGuardNetworkPlan, will retry: %s", err.Error())
+				return fmt.Errorf("failed to clear finalizers from WireGuardNetworkPlan resource, will retry: %s", err.Error())
 			}
 		}
 
@@ -381,7 +381,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		wgIntfObjs, err := c.wgLister.List(selectorOfThis)
 		if err != nil {
 			if !k8serrors.IsNotFound(err) {
-				return fmt.Errorf("failed to list WireGuardInterface resources: %s", err.Error())
+				return fmt.Errorf("failed to list WireGuardNetworkPlan resources: %s", err.Error())
 			}
 			wgIntfObjs = make([]*networkingv1alpha1.WireGuardInterface, 0)
 		}
@@ -398,7 +398,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.GetUID(), wgPlanObj.Name, wgPlanObj.GetGeneration())
 			_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces(c.ns).Create(ctx, wgIntfObj, metav1.CreateOptions{})
 			if err != nil {
-				return fmt.Errorf("failed to create WireGuardInterface resource: %s", err.Error())
+				return fmt.Errorf("failed to create WireGuardNetworkPlan resource: %s", err.Error())
 			}
 		}
 
@@ -443,13 +443,13 @@ func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgPla
 	}))
 	if err != nil {
 		if !k8serrors.IsNotFound(err) {
-			return fmt.Errorf("failed to list WireGuardInterface resources: %s", err.Error())
+			return fmt.Errorf("failed to list WireGuardNetworkPlan resources: %s", err.Error())
 		}
 	}
 
 	status, err := c.getCurrentWireGuardNetworkPlanStatus(ctx, wgIntfObjs)
 	if err != nil {
-		logger.Error(err, "Failed to get current WireGuardNetworkPlan status", "objectReference", klog.KObj(wgPlanObj))
+		logger.Error(err, "Failed to get current WireGuardNetworkPlan resource status", "objectReference", klog.KObj(wgPlanObj))
 		// Don't fail the entire sync if status update fails
 		return nil
 	}
@@ -463,7 +463,7 @@ func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgPla
 		return fmt.Errorf("failed to update status: %s", err.Error())
 	}
 
-	logger.V(4).Info("Updated WireGuardNetworkPlan status", "objectReference", klog.KObj(wgPlanObj))
+	logger.V(4).Info("Updated WireGuardNetworkPlan resource status", "objectReference", klog.KObj(wgPlanObj))
 	return nil
 }
 

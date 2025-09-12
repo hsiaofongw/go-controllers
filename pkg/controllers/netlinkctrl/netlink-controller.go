@@ -70,7 +70,7 @@ const (
 	FieldManager = controllerAgentName
 )
 
-// Controller is the controller implementation for WireGuardInterface resources
+// Controller is the controller implementation for NetlinkInterface resources
 type Controller struct {
 	// ns is the namespace where the controller is working on
 	ns           string
@@ -145,7 +145,7 @@ func NewController(
 
 	logger.Info("Setting up event handlers")
 
-	// Set up event handler for when WireGuardNetworkPlan resources change
+	// Set up event handler for when NetlinkInterface resources change
 	config.NetlinkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			nlObj, _ := obj.(*networkingv1alpha1.NetlinkInterface)
@@ -220,7 +220,7 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	}
 
 	logger.Info("Starting workers", "count", workers)
-	// Launch two workers to process WireGuardInterface resources
+	// Launch two workers to process NetlinkInterface resources
 	for i := 0; i < workers; i++ {
 		go wait.UntilWithContext(ctx, c.runWorker, time.Second)
 	}
@@ -280,9 +280,9 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 	return true
 }
 
-// enqueueWG takes a WireGuardInterface resource and converts it into a namespace/name
+// enqueueWG takes a NetlinkInterface resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should *not* be
-// passed resources of any type other than WireGuardInterface.
+// passed resources of any type other than NetlinkInterface.
 func (c *Controller) enqueueNl(obj interface{}) {
 	if objectRef, err := cache.ObjectToName(obj); err != nil {
 		utilruntime.HandleError(err)
@@ -309,7 +309,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 	nodeName := nlObj.Spec.Node
 	if c.nodeName != nodeName {
-		logger.V(4).Info("This node is not responsible for this WireGuardInterface", "objectReference", objectRef)
+		logger.V(4).Info("This node is not responsible for this NetlinkInterface", "objectReference", objectRef)
 		return nil
 	}
 
@@ -409,7 +409,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	return nil
 }
 
-// updateWireGuardNetworkPlanStatus updates the status of a WireGuardNetworkPlan with current information
+// updateNetlinkInterfaceStatus updates the status of a NetlinkInterface with current information
 func (c *Controller) updateNetlinkInterfaceStatus(ctx context.Context, nlObj *networkingv1alpha1.NetlinkInterface) error {
 	logger := klog.FromContext(ctx)
 

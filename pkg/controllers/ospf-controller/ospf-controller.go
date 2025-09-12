@@ -105,7 +105,7 @@ type ControllerConfig struct {
 	VtyshPath       string
 }
 
-// NewController returns a new WireGuardInterface controller
+// NewController returns a new OSPFProtocol controller
 func NewController(
 	ctx context.Context,
 	config ControllerConfig,
@@ -113,8 +113,8 @@ func NewController(
 	logger := klog.FromContext(ctx)
 
 	// Create event broadcaster
-	// Add WireGuardInterface types to the default Kubernetes Scheme so Events can be
-	// logged for WireGuardInterface types.
+	// Add OSPFProtocol types to the default Kubernetes Scheme so Events can be
+	// logged for OSPFProtocol types.
 	utilruntime.Must(samplescheme.AddToScheme(scheme.Scheme))
 	logger.V(4).Info("Creating event broadcaster")
 
@@ -160,7 +160,7 @@ func NewController(
 
 	logger.Info("Setting up event handlers")
 
-	// Set up event handler for when WireGuardNetworkPlan resources change
+	// Set up event handler for when OSPFProtocol resources change
 	config.NetlinkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			nlObj, _ := obj.(*networkingv1alpha1.OSPFProtocol)
@@ -235,7 +235,7 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	}
 
 	logger.Info("Starting workers", "count", workers)
-	// Launch two workers to process WireGuardInterface resources
+	// Launch two workers to process OSPFProtocol resources
 	for i := 0; i < workers; i++ {
 		go wait.UntilWithContext(ctx, c.runWorker, time.Second)
 	}
@@ -295,9 +295,9 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 	return true
 }
 
-// enqueueWG takes a WireGuardInterface resource and converts it into a namespace/name
+// enqueueWG takes a OSPFProtocol resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should *not* be
-// passed resources of any type other than WireGuardInterface.
+// passed resources of any type other than OSPFProtocol.
 func (c *Controller) enqueueOSPFProtocol(obj interface{}) {
 	if objectRef, err := cache.ObjectToName(obj); err != nil {
 		utilruntime.HandleError(err)
@@ -324,7 +324,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 	nodeName := nlObj.Spec.Node
 	if c.nodeName != nodeName {
-		logger.V(4).Info("This node is not responsible for this WireGuardInterface", "objectReference", objectRef)
+		logger.V(4).Info("This node is not responsible for this OSPFProtocol", "objectReference", objectRef)
 		return nil
 	}
 
@@ -382,7 +382,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		}
 
 		logger.Info("Updating OSPFProtocol status", "objectReference", klog.KObj(nlObj))
-		// Update the status with current NetlinkInterface information
+		// Update the status with current OSPFProtocol information
 		err = c.updateOSPFProtocolStatus(ctx, nlObj)
 		if err != nil {
 			return fmt.Errorf("failed to update OSPFProtocol status: %s", err.Error())
@@ -392,7 +392,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 	return nil
 }
 
-// updateWireGuardNetworkPlanStatus updates the status of a WireGuardNetworkPlan with current information
+// updateOSPFProtocolStatus updates the status of a OSPFProtocol with current information
 func (c *Controller) updateOSPFProtocolStatus(ctx context.Context, nlObj *networkingv1alpha1.OSPFProtocol) error {
 	logger := klog.FromContext(ctx)
 
@@ -431,6 +431,6 @@ func (c *Controller) updateOSPFProtocolStatus(ctx context.Context, nlObj *networ
 		return fmt.Errorf("failed to update status: %s", err.Error())
 	}
 
-	logger.V(4).Info("Updated NetlinkInterface status", "objectReference", klog.KObj(nlObjCopy))
+	logger.V(4).Info("Updated OSPFProtocol status", "objectReference", klog.KObj(nlObjCopy))
 	return nil
 }
