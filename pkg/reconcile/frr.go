@@ -71,20 +71,35 @@ func (a *FRRVtyshAgent) ExecuteMultilineCommand(cmds []string) ([]byte, error) {
 	return a.ExecuteCommandIO(&buf)
 }
 
+type FRROSPFManager struct {
+	vtyshAgent *FRRVtyshAgent
+}
+
 type FRROSPFv2Reconciler struct {
-	vtyshAgent             *FRRVtyshAgent
+	manager                *FRROSPFManager
 	needEnableOSPFv2Router bool
 	addedIntfList          map[string]interface{}
 	removedIntfList        map[string]*FRROSPFIface
 }
 
-func NewFRROSPFv2Reconciler(vtyshPath string) (*FRROSPFv2Reconciler, error) {
+func NewFRROSPFManager(vtyshPath string) (*FRROSPFManager, error) {
 	vtyshAgent, err := NewFRRVtyshAgent(vtyshPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vtysh agent: %v", err)
 	}
-	reconciler := &FRROSPFv2Reconciler{
+	manager := &FRROSPFManager{
 		vtyshAgent: vtyshAgent,
+	}
+	return manager, nil
+}
+
+func NewFRROSPFv2Reconciler(vtyshPath string) (*FRROSPFv2Reconciler, error) {
+	manager, err := NewFRROSPFManager(vtyshPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create FRR OSPF manager: %v", err)
+	}
+	reconciler := &FRROSPFv2Reconciler{
+		manager: manager,
 	}
 	return reconciler, nil
 }
@@ -114,8 +129,8 @@ type FRROSPFIfaceList struct {
 	Interfaces map[string]FRROSPFIface `json:"interfaces,omitempty"`
 }
 
-func (r *FRROSPFv2Reconciler) getInterfaceList() (map[string]*FRROSPFIface, error) {
-	output, err := r.vtyshAgent.ExecuteCommand("show ip ospf interface json")
+func (m *FRROSPFManager) GetInterfaceList() (map[string]*FRROSPFIface, error) {
+	output, err := m.vtyshAgent.ExecuteCommand("show ip ospf interface json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute command: %v", err)
 	}
@@ -145,20 +160,20 @@ func (r *FRROSPFv2Reconciler) CleanUpResource(ctx context.Context, spec *network
 		return fmt.Errorf("spec is nil")
 	}
 
-	currentIntfList, err := r.getInterfaceList()
+	currentIntfList, err := r.manager.GetInterfaceList()
 	if err != nil {
 		return fmt.Errorf("failed to get interface list: %v", err)
 	}
 
 	for intfName, intfObj := range currentIntfList {
 		if intfObj.RouterID != nil && *intfObj.RouterID == spec.RouterID {
-			if err := r.deleteInterface(intfName, intfObj); err != nil {
+			if err := r.manager.DeleteInterface(intfName, intfObj); err != nil {
 				return fmt.Errorf("failed to delete interface %s: %v", intfName, err)
 			}
 		}
 	}
 
-	if err := r.deleteOSPFv2Router(spec.VRF); err != nil {
+	if err := r.manager.DeleteOSPFv2Router(spec.VRF); err != nil {
 		return fmt.Errorf("failed to delete OSPFv2 router: %v", err)
 	}
 
@@ -171,7 +186,7 @@ func (r *FRROSPFv2Reconciler) DetectChanges(ctx context.Context, desiredState in
 		return false, fmt.Errorf("desiredState is not a OSPFProtocolSpec")
 	}
 
-	output, err := r.vtyshAgent.ExecuteCommand("show ip ospf json")
+	output, err := r.manager.vtyshAgent.ExecuteCommand("show ip ospf json")
 	if err != nil {
 		return false, fmt.Errorf("failed to execute command: %v", err)
 	}
@@ -181,7 +196,7 @@ func (r *FRROSPFv2Reconciler) DetectChanges(ctx context.Context, desiredState in
 		return r.gatherAllUpdates(), nil
 	}
 
-	currentIntfList, err := r.getInterfaceList()
+	currentIntfList, err := r.manager.GetInterfaceList()
 	if err != nil {
 		return false, fmt.Errorf("failed to get interface list: %v", err)
 	}
@@ -226,7 +241,7 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 			return fmt.Errorf("routerID is required")
 		}
 
-		if err := r.enableOSPFv2Router(routerId, spec.VRF); err != nil {
+		if err := r.manager.EnableOSPFv2Router(routerId, spec.VRF); err != nil {
 			return fmt.Errorf("failed to enable OSPFv2 router: %v", err)
 		}
 	}
@@ -234,7 +249,7 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 	if r.removedIntfList != nil {
 		for intfName := range r.removedIntfList {
 			intfobj := r.removedIntfList[intfName]
-			if err := r.deleteInterface(intfName, intfobj); err != nil {
+			if err := r.manager.DeleteInterface(intfName, intfobj); err != nil {
 				return fmt.Errorf("failed to delete interface %s: %v", intfName, err)
 			}
 		}
@@ -243,7 +258,7 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 	if r.addedIntfList != nil {
 		for intfName := range r.addedIntfList {
 			intfSpec := r.addedIntfList[intfName].(*networkingv1alpha1.OSPFProtocolInterfaceSpec)
-			if err := r.addInterface(intfName, intfSpec); err != nil {
+			if err := r.manager.AddInterface(intfName, intfSpec); err != nil {
 				return fmt.Errorf("failed to add interface %s: %v", intfName, err)
 			}
 		}
@@ -252,7 +267,7 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 	return nil
 }
 
-func (r *FRROSPFv2Reconciler) enableOSPFv2Router(routerId string, vrf *string) error {
+func (m *FRROSPFManager) EnableOSPFv2Router(routerId string, vrf *string) error {
 	cmds := make([]string, 0)
 	cmds = append(cmds, "configure")
 	cmds = append(cmds, "router ospf")
@@ -264,14 +279,14 @@ func (r *FRROSPFv2Reconciler) enableOSPFv2Router(routerId string, vrf *string) e
 	cmds = append(cmds, "exit")
 	cmds = append(cmds, "exit")
 
-	_, err := r.vtyshAgent.ExecuteMultilineCommand(cmds)
+	_, err := m.vtyshAgent.ExecuteMultilineCommand(cmds)
 	if err != nil {
 		return fmt.Errorf("failed to enable OSPFv2 router: %v", err)
 	}
 	return nil
 }
 
-func (r *FRROSPFv2Reconciler) deleteOSPFv2Router(vrf *string) error {
+func (m *FRROSPFManager) DeleteOSPFv2Router(vrf *string) error {
 	cmds := make([]string, 0)
 	cmds = append(cmds, "configure")
 	if vrf != nil && *vrf != "" {
@@ -282,7 +297,7 @@ func (r *FRROSPFv2Reconciler) deleteOSPFv2Router(vrf *string) error {
 
 	cmds = append(cmds, "exit")
 
-	_, err := r.vtyshAgent.ExecuteMultilineCommand(cmds)
+	_, err := m.vtyshAgent.ExecuteMultilineCommand(cmds)
 	if err != nil {
 		return fmt.Errorf("failed to delete OSPFv2 router: %v", err)
 	}
@@ -290,7 +305,7 @@ func (r *FRROSPFv2Reconciler) deleteOSPFv2Router(vrf *string) error {
 	return nil
 }
 
-func (r *FRROSPFv2Reconciler) deleteInterface(intfName string, intfobj *FRROSPFIface) error {
+func (m *FRROSPFManager) DeleteInterface(intfName string, intfobj *FRROSPFIface) error {
 
 	cmds := make([]string, 0)
 	cmds = append(cmds, "configure")
@@ -306,14 +321,14 @@ func (r *FRROSPFv2Reconciler) deleteInterface(intfName string, intfobj *FRROSPFI
 	cmds = append(cmds, "exit")
 	cmds = append(cmds, "exit")
 
-	_, err := r.vtyshAgent.ExecuteMultilineCommand(cmds)
+	_, err := m.vtyshAgent.ExecuteMultilineCommand(cmds)
 	if err != nil {
 		return fmt.Errorf("failed to delete interface %s: %v", intfName, err)
 	}
 	return nil
 }
 
-func (r *FRROSPFv2Reconciler) addInterface(intfName string, intfSpec *networkingv1alpha1.OSPFProtocolInterfaceSpec) error {
+func (m *FRROSPFManager) AddInterface(intfName string, intfSpec *networkingv1alpha1.OSPFProtocolInterfaceSpec) error {
 
 	if intfSpec.Passive != nil && *intfSpec.Passive {
 		cmds := make([]string, 0)
@@ -324,7 +339,7 @@ func (r *FRROSPFv2Reconciler) addInterface(intfName string, intfSpec *networking
 		cmds = append(cmds, "exit")
 		cmds = append(cmds, "exit")
 
-		_, err := r.vtyshAgent.ExecuteMultilineCommand(cmds)
+		_, err := m.vtyshAgent.ExecuteMultilineCommand(cmds)
 		if err != nil {
 			return fmt.Errorf("failed to add interface %s: %v", intfName, err)
 		}
@@ -339,7 +354,7 @@ func (r *FRROSPFv2Reconciler) addInterface(intfName string, intfSpec *networking
 	cmds = append(cmds, "exit")
 	cmds = append(cmds, "exit")
 
-	_, err := r.vtyshAgent.ExecuteMultilineCommand(cmds)
+	_, err := m.vtyshAgent.ExecuteMultilineCommand(cmds)
 	if err != nil {
 		return fmt.Errorf("failed to add interface %s: %v", intfName, err)
 	}
