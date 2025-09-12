@@ -72,6 +72,8 @@ const (
 
 // Controller is the controller implementation for WireGuardInterface resources
 type Controller struct {
+	// ns is the namespace where the controller is working on
+	ns           string
 	nodeName     string
 	dockerClient *dockerSDK.Client
 	// kubeclientset is a standard kubernetes clientset
@@ -98,6 +100,7 @@ type ControllerConfig struct {
 	Sampleclientset clientset.Interface
 	NetlinkInformer v1alpha1Informer.NetlinkInterfaceInformer
 	NodeName        string
+	Namespace       string
 }
 
 // NewController returns a new WireGuardInterface controller
@@ -137,6 +140,7 @@ func NewController(
 		workqueue:       workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:        recorder,
 		nodeName:        config.NodeName,
+		ns:              config.Namespace,
 	}
 
 	logger.Info("Setting up event handlers")
@@ -293,7 +297,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 	logger.V(4).Info("Processing netlinkinterface object update/creation", "object", objectRef.Name)
 
-	nlObj, err := c.nlLister.Get(objectRef.Name)
+	nlObj, err := c.nlLister.NetlinkInterfaces(c.ns).Get(objectRef.Name)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			utilruntime.HandleErrorWithContext(ctx, err, "NetlinkInterface referenced by item in work queue no longer exists", "objectReference", objectRef)
@@ -338,7 +342,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 		nlObjCopy := nlObj.DeepCopy()
 		nlObjCopy.SetFinalizers([]string{})
-		_, err = c.sampleclientset.NetworkingV1alpha1().NetlinkInterfaces().Update(context.Background(), nlObjCopy, metav1.UpdateOptions{})
+		_, err = c.sampleclientset.NetworkingV1alpha1().NetlinkInterfaces(c.ns).Update(context.Background(), nlObjCopy, metav1.UpdateOptions{})
 		if err != nil {
 			if !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("failed to clear finalizers from NetlinkInterface, will retry: %s", err.Error())
@@ -424,7 +428,7 @@ func (c *Controller) updateNetlinkInterfaceStatus(ctx context.Context, nlObj *ne
 	nlObjCopy.Status = *status
 
 	// Use UpdateStatus to update only the Status block of the NetlinkInterface resource
-	_, err = c.sampleclientset.NetworkingV1alpha1().NetlinkInterfaces().UpdateStatus(ctx, nlObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
+	_, err = c.sampleclientset.NetworkingV1alpha1().NetlinkInterfaces(c.ns).UpdateStatus(ctx, nlObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
 	if err != nil {
 		return fmt.Errorf("failed to update status: %s", err.Error())
 	}

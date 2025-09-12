@@ -4,6 +4,7 @@ metadata:
   name: wgp1
   finalizers:
     - wireguardnetworkplans.networking.dn42.io/finalizer
+  namespace: default
 spec:
   nodes:
     # let's pretend that lax1 has a public IP address,

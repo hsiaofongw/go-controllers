@@ -42,44 +42,45 @@ type WireGuardNetworkPlanInformer interface {
 type wireGuardNetworkPlanInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
+	namespace        string
 }
 
 // NewWireGuardNetworkPlanInformer constructs a new informer for WireGuardNetworkPlan type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewWireGuardNetworkPlanInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredWireGuardNetworkPlanInformer(client, resyncPeriod, indexers, nil)
+func NewWireGuardNetworkPlanInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredWireGuardNetworkPlanInformer(client, namespace, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredWireGuardNetworkPlanInformer constructs a new informer for WireGuardNetworkPlan type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredWireGuardNetworkPlanInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredWireGuardNetworkPlanInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().WireGuardNetworkPlans().List(context.Background(), options)
+				return client.NetworkingV1alpha1().WireGuardNetworkPlans(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().WireGuardNetworkPlans().Watch(context.Background(), options)
+				return client.NetworkingV1alpha1().WireGuardNetworkPlans(namespace).Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().WireGuardNetworkPlans().List(ctx, options)
+				return client.NetworkingV1alpha1().WireGuardNetworkPlans(namespace).List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().WireGuardNetworkPlans().Watch(ctx, options)
+				return client.NetworkingV1alpha1().WireGuardNetworkPlans(namespace).Watch(ctx, options)
 			},
 		},
 		&apisnetworkingv1alpha1.WireGuardNetworkPlan{},
@@ -89,7 +90,7 @@ func NewFilteredWireGuardNetworkPlanInformer(client versioned.Interface, resyncP
 }
 
 func (f *wireGuardNetworkPlanInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredWireGuardNetworkPlanInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredWireGuardNetworkPlanInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *wireGuardNetworkPlanInformer) Informer() cache.SharedIndexInformer {

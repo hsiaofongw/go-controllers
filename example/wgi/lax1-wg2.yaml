@@ -16,6 +16,7 @@ metadata:
     dn42.dev/asn: "4242421771"
   finalizers:
     - wireguardinterface.networking.dn42.io/finalizer
+  namespace: default
 spec:
   node: lax1
   moveToContainer: true

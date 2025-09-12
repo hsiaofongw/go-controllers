@@ -32,7 +32,7 @@ import (
 // OSPFProtocolsGetter has a method to return a OSPFProtocolInterface.
 // A group's client should implement this interface.
 type OSPFProtocolsGetter interface {
-	OSPFProtocols() OSPFProtocolInterface
+	OSPFProtocols(namespace string) OSPFProtocolInterface
 }
 
 // OSPFProtocolInterface has methods to work with OSPFProtocol resources.
@@ -56,13 +56,13 @@ type oSPFProtocols struct {
 }
 
 // newOSPFProtocols returns a OSPFProtocols
-func newOSPFProtocols(c *NetworkingV1alpha1Client) *oSPFProtocols {
+func newOSPFProtocols(c *NetworkingV1alpha1Client, namespace string) *oSPFProtocols {
 	return &oSPFProtocols{
 		gentype.NewClientWithList[*networkingv1alpha1.OSPFProtocol, *networkingv1alpha1.OSPFProtocolList](
 			"ospfprotocols",
 			c.RESTClient(),
 			scheme.ParameterCodec,
-			"",
+			namespace,
 			func() *networkingv1alpha1.OSPFProtocol { return &networkingv1alpha1.OSPFProtocol{} },
 			func() *networkingv1alpha1.OSPFProtocolList { return &networkingv1alpha1.OSPFProtocolList{} },
 		),

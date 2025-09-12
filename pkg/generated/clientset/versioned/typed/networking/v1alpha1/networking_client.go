@@ -39,20 +39,20 @@ type NetworkingV1alpha1Client struct {
 	restClient rest.Interface
 }
 
-func (c *NetworkingV1alpha1Client) NetlinkInterfaces() NetlinkInterfaceInterface {
-	return newNetlinkInterfaces(c)
+func (c *NetworkingV1alpha1Client) NetlinkInterfaces(namespace string) NetlinkInterfaceInterface {
+	return newNetlinkInterfaces(c, namespace)
 }
 
-func (c *NetworkingV1alpha1Client) OSPFProtocols() OSPFProtocolInterface {
-	return newOSPFProtocols(c)
+func (c *NetworkingV1alpha1Client) OSPFProtocols(namespace string) OSPFProtocolInterface {
+	return newOSPFProtocols(c, namespace)
 }
 
-func (c *NetworkingV1alpha1Client) WireGuardInterfaces() WireGuardInterfaceInterface {
-	return newWireGuardInterfaces(c)
+func (c *NetworkingV1alpha1Client) WireGuardInterfaces(namespace string) WireGuardInterfaceInterface {
+	return newWireGuardInterfaces(c, namespace)
 }
 
-func (c *NetworkingV1alpha1Client) WireGuardNetworkPlans() WireGuardNetworkPlanInterface {
-	return newWireGuardNetworkPlans(c)
+func (c *NetworkingV1alpha1Client) WireGuardNetworkPlans(namespace string) WireGuardNetworkPlanInterface {
+	return newWireGuardNetworkPlans(c, namespace)
 }
 
 // NewForConfig creates a new NetworkingV1alpha1Client for the given config.

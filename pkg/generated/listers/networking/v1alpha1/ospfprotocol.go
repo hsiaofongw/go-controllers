@@ -31,9 +31,8 @@ type OSPFProtocolLister interface {
 	// List lists all OSPFProtocols in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*networkingv1alpha1.OSPFProtocol, err error)
-	// Get retrieves the OSPFProtocol from the index for a given name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*networkingv1alpha1.OSPFProtocol, error)
+	// OSPFProtocols returns an object that can list and get OSPFProtocols.
+	OSPFProtocols(namespace string) OSPFProtocolNamespaceLister
 	OSPFProtocolListerExpansion
 }
 
@@ -45,4 +44,27 @@ type oSPFProtocolLister struct {
 // NewOSPFProtocolLister returns a new OSPFProtocolLister.
 func NewOSPFProtocolLister(indexer cache.Indexer) OSPFProtocolLister {
 	return &oSPFProtocolLister{listers.New[*networkingv1alpha1.OSPFProtocol](indexer, networkingv1alpha1.Resource("ospfprotocol"))}
+}
+
+// OSPFProtocols returns an object that can list and get OSPFProtocols.
+func (s *oSPFProtocolLister) OSPFProtocols(namespace string) OSPFProtocolNamespaceLister {
+	return oSPFProtocolNamespaceLister{listers.NewNamespaced[*networkingv1alpha1.OSPFProtocol](s.ResourceIndexer, namespace)}
+}
+
+// OSPFProtocolNamespaceLister helps list and get OSPFProtocols.
+// All objects returned here must be treated as read-only.
+type OSPFProtocolNamespaceLister interface {
+	// List lists all OSPFProtocols in the indexer for a given namespace.
+	// Objects returned here must be treated as read-only.
+	List(selector labels.Selector) (ret []*networkingv1alpha1.OSPFProtocol, err error)
+	// Get retrieves the OSPFProtocol from the indexer for a given namespace and name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*networkingv1alpha1.OSPFProtocol, error)
+	OSPFProtocolNamespaceListerExpansion
+}
+
+// oSPFProtocolNamespaceLister implements the OSPFProtocolNamespaceLister
+// interface.
+type oSPFProtocolNamespaceLister struct {
+	listers.ResourceIndexer[*networkingv1alpha1.OSPFProtocol]
 }

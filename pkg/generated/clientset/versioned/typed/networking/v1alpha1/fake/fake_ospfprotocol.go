@@ -30,11 +30,11 @@ type fakeOSPFProtocols struct {
 	Fake *FakeNetworkingV1alpha1
 }
 
-func newFakeOSPFProtocols(fake *FakeNetworkingV1alpha1) networkingv1alpha1.OSPFProtocolInterface {
+func newFakeOSPFProtocols(fake *FakeNetworkingV1alpha1, namespace string) networkingv1alpha1.OSPFProtocolInterface {
 	return &fakeOSPFProtocols{
 		gentype.NewFakeClientWithList[*v1alpha1.OSPFProtocol, *v1alpha1.OSPFProtocolList](
 			fake.Fake,
-			"",
+			namespace,
 			v1alpha1.SchemeGroupVersion.WithResource("ospfprotocols"),
 			v1alpha1.SchemeGroupVersion.WithKind("OSPFProtocol"),
 			func() *v1alpha1.OSPFProtocol { return &v1alpha1.OSPFProtocol{} },

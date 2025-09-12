@@ -5,6 +5,7 @@ metadata:
   name: lax1-agent1-vxlan1
   finalizers:
     - netlinkinterface.networking.dn42.io/finalizer
+  namespace: default
 spec:
   node: lax1
   interfaceName: vxlan1

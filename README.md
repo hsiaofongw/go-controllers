@@ -45,10 +45,10 @@ Then cd into the project's directory and build:
 ```sh
 cd ~/projects/go-projects/go-controllers
 
-# NOTE: PICK A TEST Kubernetes CLUSTER for testing.
-# It will apply some CRD manifests to the API server.
-# **Be aware that** it might override the already applied CRDs in your k8s cluster with the same name.
 ./build-all.sh
+
+# If there is any updates in the generated CRDs, remember to re-apply the new CRDs to the cluster
+kubectl apply ./crds
 ```
 
 ## Give It a Try:
@@ -69,21 +69,21 @@ Note that agentx is the privileged container that runs in the host netns and sha
 Start controller for node 'lax1':
 
 ```sh
-docker exec -w /root/projects/go-projects/go-controllers/bin -it agentx \
+docker exec -w /root/projects/go-projects/go-controllers/bin -it agentx --namespace default \
     ./wg-controller --kubeconfig /root/.kube/config -nodename lax1 -v 4
 ```
 
 Start controller for node 'lax2':
 
 ```sh
-docker exec -w /root/projects/go-projects/go-controllers/bin -it agentx \
+docker exec -w /root/projects/go-projects/go-controllers/bin -it agentx --namespace default \
     ./wg-controller --kubeconfig /root/.kube/config -nodename lax2 -v 4
 ```
 
 Start the controller that is responsible for the WireGuardNetworkPlan resources:
 
 ```sh
-docker exec -w /root/projects/go-projects/go-controllers/bin -it agentx \
+docker exec -w /root/projects/go-projects/go-controllers/bin -it agentx --namespace default \
     ./wgplan-controller --kubeconfig=/root/.kube/config -v 4
 ```
 
@@ -143,7 +143,7 @@ docker exec -it agent1 ping -c 3 fe80::a:1771%wg1
 Start netlink controller on node lax1:
 
 ```sh
-docker exec -w /root/projects/go-projects/go-controllers/bin -it agentx \
+docker exec -w /root/projects/go-projects/go-controllers/bin -it agentx --namespace default \
     ./nl-controller --kubeconfig /root/.kube/config -nodename lax1 -v 4
 ```
 

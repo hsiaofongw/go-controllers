@@ -102,6 +102,8 @@ type Controller struct {
 	// recorder is an event recorder for recording Event resources to the
 	// Kubernetes API.
 	recorder record.EventRecorder
+
+	ns string
 }
 
 type ControllerConfig struct {
@@ -110,6 +112,7 @@ type ControllerConfig struct {
 	WgInformer      v1alpha1Informer.WireGuardInterfaceInformer
 	WgPlanInformer  v1alpha1Informer.WireGuardNetworkPlanInformer
 	SecretsInformer secretsinformers.SecretInformer
+	Namespace       string
 }
 
 // NewController returns a new WireGuardInterface controller
@@ -162,6 +165,7 @@ func NewController(
 		secretsSynced:   config.SecretsInformer.Informer().HasSynced,
 		workqueue:       workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:        recorder,
+		ns:              config.Namespace,
 	}
 
 	logger.Info("Setting up event handlers")
@@ -320,7 +324,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 	logger.V(4).Info("Processing wgnetworkplan object update/creation", "object", objectRef.Name)
 
-	wgPlanObj, err := c.wgPlanLister.Get(objectRef.Name)
+	wgPlanObj, err := c.wgPlanLister.WireGuardNetworkPlans(c.ns).Get(objectRef.Name)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			utilruntime.HandleErrorWithContext(ctx, err, "WireGuardNetworkPlan referenced by item in work queue no longer exists", "objectReference", objectRef)
@@ -345,7 +349,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		}
 
 		for _, wgIntfObj := range wgIntfObjs {
-			err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Delete(context.Background(), wgIntfObj.Name, metav1.DeleteOptions{})
+			err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces(c.ns).Delete(context.Background(), wgIntfObj.Name, metav1.DeleteOptions{})
 			if err != nil {
 				logger.Error(err, "Failed to delete WireGuardInterface resource for cleanup", "objectReference", klog.KObj(wgIntfObj))
 			}
@@ -353,7 +357,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 		wgPlanObjCopy := wgPlanObj.DeepCopy()
 		wgPlanObjCopy.SetFinalizers([]string{})
-		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardNetworkPlans().Update(context.Background(), wgPlanObjCopy, metav1.UpdateOptions{})
+		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardNetworkPlans(c.ns).Update(context.Background(), wgPlanObjCopy, metav1.UpdateOptions{})
 		if err != nil {
 			if !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("failed to clear finalizers from WireGuardNetworkPlan, will retry: %s", err.Error())
@@ -392,7 +396,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		for _, item := range resourceSet.ShouldBeAdded {
 			wgActualIntfObj := item.(*WGActualPlanInterface)
 			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.GetUID(), wgPlanObj.Name, wgPlanObj.GetGeneration())
-			_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Create(ctx, wgIntfObj, metav1.CreateOptions{})
+			_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces(c.ns).Create(ctx, wgIntfObj, metav1.CreateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to create WireGuardInterface resource: %s", err.Error())
 			}
@@ -400,7 +404,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 		for _, item := range resourceSet.ShouldBeRemoved {
 			wgIntfObj := item.(*networkingv1alpha1.WireGuardInterface)
-			err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Delete(ctx, wgIntfObj.Name, metav1.DeleteOptions{})
+			err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces(c.ns).Delete(ctx, wgIntfObj.Name, metav1.DeleteOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to delete WireGuardInterface resource: %s", err.Error())
 			}
@@ -409,7 +413,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		for _, item := range resourceSet.ShouldBeUpdated {
 			wgActualIntfObj := item.(*WGActualPlanInterface)
 			wgIntfObj := wgActualIntfObj.ToWireGuardInterfaceObject(wgPlanObj.GetUID(), wgPlanObj.Name, wgPlanObj.GetGeneration())
-			_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Update(ctx, wgIntfObj, metav1.UpdateOptions{})
+			_, err := c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces(c.ns).Update(ctx, wgIntfObj, metav1.UpdateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to update WireGuardInterface resource: %s", err.Error())
 			}
@@ -454,7 +458,7 @@ func (c *Controller) updateWireGuardNetworkPlanStatus(ctx context.Context, wgPla
 	wgPlanObjCopy.Status = *status
 
 	// Use UpdateStatus to update only the Status block of the WireGuardNetworkPlan resource
-	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardNetworkPlans().UpdateStatus(ctx, wgPlanObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
+	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardNetworkPlans(c.ns).UpdateStatus(ctx, wgPlanObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
 	if err != nil {
 		return fmt.Errorf("failed to update status: %s", err.Error())
 	}

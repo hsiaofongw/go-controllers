@@ -24,9 +24,8 @@ import (
 )
 
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster,shortName=wgi;wgif
+// +kubebuilder:resource:shortName=wgi;wgif
 // +genclient
-// +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // WireGuardInterface is a specification for a WireGuardInterface resource

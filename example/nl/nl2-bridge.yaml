@@ -4,6 +4,7 @@ metadata:
   name: lax1-nl2-bridge
   finalizers:
     - netlinkinterface.networking.dn42.io/finalizer
+  namespace: default
 spec:
   node: lax1
   interfaceName: nl2-bridge

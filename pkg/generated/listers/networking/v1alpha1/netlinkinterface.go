@@ -31,9 +31,8 @@ type NetlinkInterfaceLister interface {
 	// List lists all NetlinkInterfaces in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*networkingv1alpha1.NetlinkInterface, err error)
-	// Get retrieves the NetlinkInterface from the index for a given name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*networkingv1alpha1.NetlinkInterface, error)
+	// NetlinkInterfaces returns an object that can list and get NetlinkInterfaces.
+	NetlinkInterfaces(namespace string) NetlinkInterfaceNamespaceLister
 	NetlinkInterfaceListerExpansion
 }
 
@@ -45,4 +44,27 @@ type netlinkInterfaceLister struct {
 // NewNetlinkInterfaceLister returns a new NetlinkInterfaceLister.
 func NewNetlinkInterfaceLister(indexer cache.Indexer) NetlinkInterfaceLister {
 	return &netlinkInterfaceLister{listers.New[*networkingv1alpha1.NetlinkInterface](indexer, networkingv1alpha1.Resource("netlinkinterface"))}
+}
+
+// NetlinkInterfaces returns an object that can list and get NetlinkInterfaces.
+func (s *netlinkInterfaceLister) NetlinkInterfaces(namespace string) NetlinkInterfaceNamespaceLister {
+	return netlinkInterfaceNamespaceLister{listers.NewNamespaced[*networkingv1alpha1.NetlinkInterface](s.ResourceIndexer, namespace)}
+}
+
+// NetlinkInterfaceNamespaceLister helps list and get NetlinkInterfaces.
+// All objects returned here must be treated as read-only.
+type NetlinkInterfaceNamespaceLister interface {
+	// List lists all NetlinkInterfaces in the indexer for a given namespace.
+	// Objects returned here must be treated as read-only.
+	List(selector labels.Selector) (ret []*networkingv1alpha1.NetlinkInterface, err error)
+	// Get retrieves the NetlinkInterface from the indexer for a given namespace and name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*networkingv1alpha1.NetlinkInterface, error)
+	NetlinkInterfaceNamespaceListerExpansion
+}
+
+// netlinkInterfaceNamespaceLister implements the NetlinkInterfaceNamespaceLister
+// interface.
+type netlinkInterfaceNamespaceLister struct {
+	listers.ResourceIndexer[*networkingv1alpha1.NetlinkInterface]
 }

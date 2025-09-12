@@ -47,20 +47,20 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 
 // NetlinkInterfaces returns a NetlinkInterfaceInformer.
 func (v *version) NetlinkInterfaces() NetlinkInterfaceInformer {
-	return &netlinkInterfaceInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+	return &netlinkInterfaceInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // OSPFProtocols returns a OSPFProtocolInformer.
 func (v *version) OSPFProtocols() OSPFProtocolInformer {
-	return &oSPFProtocolInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+	return &oSPFProtocolInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // WireGuardInterfaces returns a WireGuardInterfaceInformer.
 func (v *version) WireGuardInterfaces() WireGuardInterfaceInformer {
-	return &wireGuardInterfaceInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+	return &wireGuardInterfaceInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // WireGuardNetworkPlans returns a WireGuardNetworkPlanInformer.
 func (v *version) WireGuardNetworkPlans() WireGuardNetworkPlanInformer {
-	return &wireGuardNetworkPlanInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+	return &wireGuardNetworkPlanInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

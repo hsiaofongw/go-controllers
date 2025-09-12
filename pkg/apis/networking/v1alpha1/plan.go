@@ -21,9 +21,8 @@ import (
 )
 
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster,shortName=wgplan;wgp
+// +kubebuilder:resource:shortName=wgplan;wgp
 // +genclient
-// +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // WireGuardNetworkPlan is a specification for a WireGuardNetworkPlan resource

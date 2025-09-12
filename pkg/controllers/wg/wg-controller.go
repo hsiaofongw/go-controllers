@@ -90,6 +90,8 @@ type Controller struct {
 	recorder record.EventRecorder
 
 	dryRun bool
+
+	ns string
 }
 
 type ControllerConfig struct {
@@ -100,6 +102,7 @@ type ControllerConfig struct {
 	WgPlanInformer  v1alpha1Informer.WireGuardNetworkPlanInformer
 	SecretsInformer secretsinformers.SecretInformer
 	DryRun          bool
+	Namespace       string
 }
 
 // NewController returns a new WireGuardInterface controller
@@ -145,6 +148,7 @@ func NewController(
 		workqueue:       workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:        recorder,
 		dryRun:          config.DryRun,
+		ns:              config.Namespace,
 	}
 
 	logger.Info("Setting up event handlers")
@@ -328,7 +332,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 	logger.V(4).Info("Processing wgi object creation", "object", objectRef.Name)
 
-	wgObj, err := c.wgLister.Get(objectRef.Name)
+	wgObj, err := c.wgLister.WireGuardInterfaces(c.ns).Get(objectRef.Name)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			utilruntime.HandleErrorWithContext(ctx, err, "WireGuardInterface referenced by item in work queue no longer exists", "objectReference", objectRef)
@@ -371,7 +375,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 		wgObjCopy := wgObj.DeepCopy()
 		wgObjCopy.SetFinalizers([]string{})
-		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().Update(context.Background(), wgObjCopy, metav1.UpdateOptions{})
+		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces(c.ns).Update(context.Background(), wgObjCopy, metav1.UpdateOptions{})
 		if err != nil {
 			if !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("failed to clear finalizers from WireGuardInterface, will retry: %s", err.Error())
@@ -492,7 +496,7 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	wgObjCopy.Status = *status
 
 	// Use UpdateStatus to update only the Status block of the WireGuardInterface resource
-	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces().UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
+	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces(c.ns).UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
 
 	if err != nil {
 		return fmt.Errorf("failed to update status: %s", err.Error())

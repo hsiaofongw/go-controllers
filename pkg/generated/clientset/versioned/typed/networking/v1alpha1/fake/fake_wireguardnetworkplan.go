@@ -30,11 +30,11 @@ type fakeWireGuardNetworkPlans struct {
 	Fake *FakeNetworkingV1alpha1
 }
 
-func newFakeWireGuardNetworkPlans(fake *FakeNetworkingV1alpha1) networkingv1alpha1.WireGuardNetworkPlanInterface {
+func newFakeWireGuardNetworkPlans(fake *FakeNetworkingV1alpha1, namespace string) networkingv1alpha1.WireGuardNetworkPlanInterface {
 	return &fakeWireGuardNetworkPlans{
 		gentype.NewFakeClientWithList[*v1alpha1.WireGuardNetworkPlan, *v1alpha1.WireGuardNetworkPlanList](
 			fake.Fake,
-			"",
+			namespace,
 			v1alpha1.SchemeGroupVersion.WithResource("wireguardnetworkplans"),
 			v1alpha1.SchemeGroupVersion.WithKind("WireGuardNetworkPlan"),
 			func() *v1alpha1.WireGuardNetworkPlan { return &v1alpha1.WireGuardNetworkPlan{} },

@@ -39,6 +39,7 @@ var (
 	kubeconfig          string
 	numWorkers          int
 	defaultResyncPeriod int
+	namespace           string
 )
 
 func main() {
@@ -76,6 +77,7 @@ func main() {
 		WgInformer:      customInformerFactory.Networking().V1alpha1().WireGuardInterfaces(),
 		WgPlanInformer:  customInformerFactory.Networking().V1alpha1().WireGuardNetworkPlans(),
 		SecretsInformer: kubeInformerFactory.Core().V1().Secrets(),
+		Namespace:       namespace,
 	}
 	controller := wgplan.NewController(ctx, controllerConfig)
 
@@ -95,4 +97,5 @@ func init() {
 	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 	flag.IntVar(&numWorkers, "num-workers", 1, "The number of workers to run.")
 	flag.IntVar(&defaultResyncPeriod, "default-resync-period", 30, "The default resync period in seconds.")
+	flag.StringVar(&namespace, "namespace", "default", "The namespace where the controller is working on.")
 }

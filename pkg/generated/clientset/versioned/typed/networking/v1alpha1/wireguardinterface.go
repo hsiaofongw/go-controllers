@@ -32,7 +32,7 @@ import (
 // WireGuardInterfacesGetter has a method to return a WireGuardInterfaceInterface.
 // A group's client should implement this interface.
 type WireGuardInterfacesGetter interface {
-	WireGuardInterfaces() WireGuardInterfaceInterface
+	WireGuardInterfaces(namespace string) WireGuardInterfaceInterface
 }
 
 // WireGuardInterfaceInterface has methods to work with WireGuardInterface resources.
@@ -56,13 +56,13 @@ type wireGuardInterfaces struct {
 }
 
 // newWireGuardInterfaces returns a WireGuardInterfaces
-func newWireGuardInterfaces(c *NetworkingV1alpha1Client) *wireGuardInterfaces {
+func newWireGuardInterfaces(c *NetworkingV1alpha1Client, namespace string) *wireGuardInterfaces {
 	return &wireGuardInterfaces{
 		gentype.NewClientWithList[*networkingv1alpha1.WireGuardInterface, *networkingv1alpha1.WireGuardInterfaceList](
 			"wireguardinterfaces",
 			c.RESTClient(),
 			scheme.ParameterCodec,
-			"",
+			namespace,
 			func() *networkingv1alpha1.WireGuardInterface { return &networkingv1alpha1.WireGuardInterface{} },
 			func() *networkingv1alpha1.WireGuardInterfaceList { return &networkingv1alpha1.WireGuardInterfaceList{} },
 		),

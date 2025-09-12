@@ -42,44 +42,45 @@ type NetlinkInterfaceInformer interface {
 type netlinkInterfaceInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
+	namespace        string
 }
 
 // NewNetlinkInterfaceInformer constructs a new informer for NetlinkInterface type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewNetlinkInterfaceInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredNetlinkInterfaceInformer(client, resyncPeriod, indexers, nil)
+func NewNetlinkInterfaceInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredNetlinkInterfaceInformer(client, namespace, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredNetlinkInterfaceInformer constructs a new informer for NetlinkInterface type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredNetlinkInterfaceInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredNetlinkInterfaceInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().NetlinkInterfaces().List(context.Background(), options)
+				return client.NetworkingV1alpha1().NetlinkInterfaces(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().NetlinkInterfaces().Watch(context.Background(), options)
+				return client.NetworkingV1alpha1().NetlinkInterfaces(namespace).Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().NetlinkInterfaces().List(ctx, options)
+				return client.NetworkingV1alpha1().NetlinkInterfaces(namespace).List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().NetlinkInterfaces().Watch(ctx, options)
+				return client.NetworkingV1alpha1().NetlinkInterfaces(namespace).Watch(ctx, options)
 			},
 		},
 		&apisnetworkingv1alpha1.NetlinkInterface{},
@@ -89,7 +90,7 @@ func NewFilteredNetlinkInterfaceInformer(client versioned.Interface, resyncPerio
 }
 
 func (f *netlinkInterfaceInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredNetlinkInterfaceInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredNetlinkInterfaceInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *netlinkInterfaceInformer) Informer() cache.SharedIndexInformer {

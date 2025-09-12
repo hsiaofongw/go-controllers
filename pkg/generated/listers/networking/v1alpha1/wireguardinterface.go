@@ -31,9 +31,8 @@ type WireGuardInterfaceLister interface {
 	// List lists all WireGuardInterfaces in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*networkingv1alpha1.WireGuardInterface, err error)
-	// Get retrieves the WireGuardInterface from the index for a given name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*networkingv1alpha1.WireGuardInterface, error)
+	// WireGuardInterfaces returns an object that can list and get WireGuardInterfaces.
+	WireGuardInterfaces(namespace string) WireGuardInterfaceNamespaceLister
 	WireGuardInterfaceListerExpansion
 }
 
@@ -45,4 +44,27 @@ type wireGuardInterfaceLister struct {
 // NewWireGuardInterfaceLister returns a new WireGuardInterfaceLister.
 func NewWireGuardInterfaceLister(indexer cache.Indexer) WireGuardInterfaceLister {
 	return &wireGuardInterfaceLister{listers.New[*networkingv1alpha1.WireGuardInterface](indexer, networkingv1alpha1.Resource("wireguardinterface"))}
+}
+
+// WireGuardInterfaces returns an object that can list and get WireGuardInterfaces.
+func (s *wireGuardInterfaceLister) WireGuardInterfaces(namespace string) WireGuardInterfaceNamespaceLister {
+	return wireGuardInterfaceNamespaceLister{listers.NewNamespaced[*networkingv1alpha1.WireGuardInterface](s.ResourceIndexer, namespace)}
+}
+
+// WireGuardInterfaceNamespaceLister helps list and get WireGuardInterfaces.
+// All objects returned here must be treated as read-only.
+type WireGuardInterfaceNamespaceLister interface {
+	// List lists all WireGuardInterfaces in the indexer for a given namespace.
+	// Objects returned here must be treated as read-only.
+	List(selector labels.Selector) (ret []*networkingv1alpha1.WireGuardInterface, err error)
+	// Get retrieves the WireGuardInterface from the indexer for a given namespace and name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*networkingv1alpha1.WireGuardInterface, error)
+	WireGuardInterfaceNamespaceListerExpansion
+}
+
+// wireGuardInterfaceNamespaceLister implements the WireGuardInterfaceNamespaceLister
+// interface.
+type wireGuardInterfaceNamespaceLister struct {
+	listers.ResourceIndexer[*networkingv1alpha1.WireGuardInterface]
 }

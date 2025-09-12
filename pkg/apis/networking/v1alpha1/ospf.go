@@ -21,9 +21,8 @@ import (
 )
 
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster,shortName=ospf
+// +kubebuilder:resource:shortName=ospf
 // +genclient
-// +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // OSPFProtocol is a specification for a OSPFProtocol resource

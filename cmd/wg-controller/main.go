@@ -41,6 +41,7 @@ var (
 	defaultResyncPeriod int
 	nodename            string
 	dryRun              bool
+	namespace           string
 )
 
 func main() {
@@ -80,6 +81,7 @@ func main() {
 		WgPlanInformer:  customInformerFactory.Networking().V1alpha1().WireGuardNetworkPlans(),
 		SecretsInformer: kubeInformerFactory.Core().V1().Secrets(),
 		DryRun:          dryRun,
+		Namespace:       namespace,
 	}
 	controller := wg.NewController(ctx, controllerConfig)
 
@@ -101,4 +103,5 @@ func init() {
 	flag.IntVar(&defaultResyncPeriod, "default-resync-period", 30, "The default resync period in seconds.")
 	flag.StringVar(&nodename, "nodename", "", "The advertised nodename of this node.")
 	flag.BoolVar(&dryRun, "dry-run", false, "If true, the controller won't make any actual changes to the node, only respond to api-server events such as deletion, update and creation.")
+	flag.StringVar(&namespace, "namespace", "default", "The namespace where the controller is working on.")
 }

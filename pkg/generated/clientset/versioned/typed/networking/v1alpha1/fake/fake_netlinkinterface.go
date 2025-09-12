@@ -30,11 +30,11 @@ type fakeNetlinkInterfaces struct {
 	Fake *FakeNetworkingV1alpha1
 }
 
-func newFakeNetlinkInterfaces(fake *FakeNetworkingV1alpha1) networkingv1alpha1.NetlinkInterfaceInterface {
+func newFakeNetlinkInterfaces(fake *FakeNetworkingV1alpha1, namespace string) networkingv1alpha1.NetlinkInterfaceInterface {
 	return &fakeNetlinkInterfaces{
 		gentype.NewFakeClientWithList[*v1alpha1.NetlinkInterface, *v1alpha1.NetlinkInterfaceList](
 			fake.Fake,
-			"",
+			namespace,
 			v1alpha1.SchemeGroupVersion.WithResource("netlinkinterfaces"),
 			v1alpha1.SchemeGroupVersion.WithKind("NetlinkInterface"),
 			func() *v1alpha1.NetlinkInterface { return &v1alpha1.NetlinkInterface{} },

@@ -42,44 +42,45 @@ type OSPFProtocolInformer interface {
 type oSPFProtocolInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
+	namespace        string
 }
 
 // NewOSPFProtocolInformer constructs a new informer for OSPFProtocol type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewOSPFProtocolInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredOSPFProtocolInformer(client, resyncPeriod, indexers, nil)
+func NewOSPFProtocolInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredOSPFProtocolInformer(client, namespace, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredOSPFProtocolInformer constructs a new informer for OSPFProtocol type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredOSPFProtocolInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredOSPFProtocolInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().OSPFProtocols().List(context.Background(), options)
+				return client.NetworkingV1alpha1().OSPFProtocols(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().OSPFProtocols().Watch(context.Background(), options)
+				return client.NetworkingV1alpha1().OSPFProtocols(namespace).Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().OSPFProtocols().List(ctx, options)
+				return client.NetworkingV1alpha1().OSPFProtocols(namespace).List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1alpha1().OSPFProtocols().Watch(ctx, options)
+				return client.NetworkingV1alpha1().OSPFProtocols(namespace).Watch(ctx, options)
 			},
 		},
 		&apisnetworkingv1alpha1.OSPFProtocol{},
@@ -89,7 +90,7 @@ func NewFilteredOSPFProtocolInformer(client versioned.Interface, resyncPeriod ti
 }
 
 func (f *oSPFProtocolInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredOSPFProtocolInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredOSPFProtocolInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *oSPFProtocolInformer) Informer() cache.SharedIndexInformer {

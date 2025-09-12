@@ -28,20 +28,20 @@ type FakeNetworkingV1alpha1 struct {
 	*testing.Fake
 }
 
-func (c *FakeNetworkingV1alpha1) NetlinkInterfaces() v1alpha1.NetlinkInterfaceInterface {
-	return newFakeNetlinkInterfaces(c)
+func (c *FakeNetworkingV1alpha1) NetlinkInterfaces(namespace string) v1alpha1.NetlinkInterfaceInterface {
+	return newFakeNetlinkInterfaces(c, namespace)
 }
 
-func (c *FakeNetworkingV1alpha1) OSPFProtocols() v1alpha1.OSPFProtocolInterface {
-	return newFakeOSPFProtocols(c)
+func (c *FakeNetworkingV1alpha1) OSPFProtocols(namespace string) v1alpha1.OSPFProtocolInterface {
+	return newFakeOSPFProtocols(c, namespace)
 }
 
-func (c *FakeNetworkingV1alpha1) WireGuardInterfaces() v1alpha1.WireGuardInterfaceInterface {
-	return newFakeWireGuardInterfaces(c)
+func (c *FakeNetworkingV1alpha1) WireGuardInterfaces(namespace string) v1alpha1.WireGuardInterfaceInterface {
+	return newFakeWireGuardInterfaces(c, namespace)
 }
 
-func (c *FakeNetworkingV1alpha1) WireGuardNetworkPlans() v1alpha1.WireGuardNetworkPlanInterface {
-	return newFakeWireGuardNetworkPlans(c)
+func (c *FakeNetworkingV1alpha1) WireGuardNetworkPlans(namespace string) v1alpha1.WireGuardNetworkPlanInterface {
+	return newFakeWireGuardNetworkPlans(c, namespace)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

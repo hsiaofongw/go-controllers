@@ -32,7 +32,7 @@ import (
 // NetlinkInterfacesGetter has a method to return a NetlinkInterfaceInterface.
 // A group's client should implement this interface.
 type NetlinkInterfacesGetter interface {
-	NetlinkInterfaces() NetlinkInterfaceInterface
+	NetlinkInterfaces(namespace string) NetlinkInterfaceInterface
 }
 
 // NetlinkInterfaceInterface has methods to work with NetlinkInterface resources.
@@ -56,13 +56,13 @@ type netlinkInterfaces struct {
 }
 
 // newNetlinkInterfaces returns a NetlinkInterfaces
-func newNetlinkInterfaces(c *NetworkingV1alpha1Client) *netlinkInterfaces {
+func newNetlinkInterfaces(c *NetworkingV1alpha1Client, namespace string) *netlinkInterfaces {
 	return &netlinkInterfaces{
 		gentype.NewClientWithList[*networkingv1alpha1.NetlinkInterface, *networkingv1alpha1.NetlinkInterfaceList](
 			"netlinkinterfaces",
 			c.RESTClient(),
 			scheme.ParameterCodec,
-			"",
+			namespace,
 			func() *networkingv1alpha1.NetlinkInterface { return &networkingv1alpha1.NetlinkInterface{} },
 			func() *networkingv1alpha1.NetlinkInterfaceList { return &networkingv1alpha1.NetlinkInterfaceList{} },
 		),

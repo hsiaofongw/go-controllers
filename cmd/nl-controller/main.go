@@ -40,6 +40,7 @@ var (
 	numWorkers          int
 	defaultResyncPeriod int
 	nodename            string
+	namespace           string
 )
 
 func main() {
@@ -76,6 +77,7 @@ func main() {
 		Kubeclientset:   kubeClient,
 		Sampleclientset: customClient,
 		NetlinkInformer: customInformerFactory.Networking().V1alpha1().NetlinkInterfaces(),
+		Namespace:       namespace,
 	}
 	controller := netlinkctrl.NewController(ctx, controllerConfig)
 
@@ -96,4 +98,5 @@ func init() {
 	flag.IntVar(&numWorkers, "num-workers", 1, "The number of workers to run.")
 	flag.IntVar(&defaultResyncPeriod, "default-resync-period", 30, "The default resync period in seconds.")
 	flag.StringVar(&nodename, "nodename", "", "The advertised nodename of this node.")
+	flag.StringVar(&namespace, "namespace", "default", "The namespace where the controller is working on.")
 }

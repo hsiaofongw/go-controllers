@@ -21,9 +21,8 @@ import (
 )
 
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster,shortName=nl;nli;nlif
+// +kubebuilder:resource:shortName=nl;nli;nlif
 // +genclient
-// +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // NetlinkInterface is a specification for a NetlinkInterface resource

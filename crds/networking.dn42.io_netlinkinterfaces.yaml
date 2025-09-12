@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.19.0
   name: netlinkinterfaces.networking.dn42.io
 spec:
   group: networking.dn42.io
@@ -16,7 +16,7 @@ spec:
     - nli
     - nlif
     singular: netlinkinterface
-  scope: Cluster
+  scope: Namespaced
   versions:
   - name: v1alpha1
     schema:

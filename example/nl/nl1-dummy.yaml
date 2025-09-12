@@ -4,6 +4,7 @@ metadata:
   name: lax1-nl1-dummy
   finalizers:
     - netlinkinterface.networking.dn42.io/finalizer
+  namespace: default
 spec:
   node: lax1
   interfaceName: nl1-dummy

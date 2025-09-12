@@ -31,9 +31,8 @@ type WireGuardNetworkPlanLister interface {
 	// List lists all WireGuardNetworkPlans in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*networkingv1alpha1.WireGuardNetworkPlan, err error)
-	// Get retrieves the WireGuardNetworkPlan from the index for a given name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*networkingv1alpha1.WireGuardNetworkPlan, error)
+	// WireGuardNetworkPlans returns an object that can list and get WireGuardNetworkPlans.
+	WireGuardNetworkPlans(namespace string) WireGuardNetworkPlanNamespaceLister
 	WireGuardNetworkPlanListerExpansion
 }
 
@@ -45,4 +44,27 @@ type wireGuardNetworkPlanLister struct {
 // NewWireGuardNetworkPlanLister returns a new WireGuardNetworkPlanLister.
 func NewWireGuardNetworkPlanLister(indexer cache.Indexer) WireGuardNetworkPlanLister {
 	return &wireGuardNetworkPlanLister{listers.New[*networkingv1alpha1.WireGuardNetworkPlan](indexer, networkingv1alpha1.Resource("wireguardnetworkplan"))}
+}
+
+// WireGuardNetworkPlans returns an object that can list and get WireGuardNetworkPlans.
+func (s *wireGuardNetworkPlanLister) WireGuardNetworkPlans(namespace string) WireGuardNetworkPlanNamespaceLister {
+	return wireGuardNetworkPlanNamespaceLister{listers.NewNamespaced[*networkingv1alpha1.WireGuardNetworkPlan](s.ResourceIndexer, namespace)}
+}
+
+// WireGuardNetworkPlanNamespaceLister helps list and get WireGuardNetworkPlans.
+// All objects returned here must be treated as read-only.
+type WireGuardNetworkPlanNamespaceLister interface {
+	// List lists all WireGuardNetworkPlans in the indexer for a given namespace.
+	// Objects returned here must be treated as read-only.
+	List(selector labels.Selector) (ret []*networkingv1alpha1.WireGuardNetworkPlan, err error)
+	// Get retrieves the WireGuardNetworkPlan from the indexer for a given namespace and name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*networkingv1alpha1.WireGuardNetworkPlan, error)
+	WireGuardNetworkPlanNamespaceListerExpansion
+}
+
+// wireGuardNetworkPlanNamespaceLister implements the WireGuardNetworkPlanNamespaceLister
+// interface.
+type wireGuardNetworkPlanNamespaceLister struct {
+	listers.ResourceIndexer[*networkingv1alpha1.WireGuardNetworkPlan]
 }
