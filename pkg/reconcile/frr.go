@@ -273,12 +273,12 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 func (m *FRROSPFManager) EnableOSPFv2Router(routerId string, vrf *string) error {
 	cmds := make([]string, 0)
 	cmds = append(cmds, "configure")
-	cmds = append(cmds, "router ospf")
 	if vrf != nil && *vrf != "" {
-		cmds = append(cmds, fmt.Sprintf("ospf router-id %s vrf %s", routerId, *vrf))
+		cmds = append(cmds, fmt.Sprintf("router ospf vrf %s", *vrf))
 	} else {
-		cmds = append(cmds, fmt.Sprintf("ospf router-id %s", routerId))
+		cmds = append(cmds, "router ospf")
 	}
+	cmds = append(cmds, fmt.Sprintf("ospf router-id %s", routerId))
 	cmds = append(cmds, "exit")
 	cmds = append(cmds, "exit")
 
@@ -333,27 +333,17 @@ func (m *FRROSPFManager) DeleteInterface(intfName string, intfobj *FRROSPFIface)
 
 func (m *FRROSPFManager) AddInterface(intfName string, intfSpec *networkingv1alpha1.OSPFProtocolInterfaceSpec) error {
 
-	if intfSpec.Passive != nil && *intfSpec.Passive {
-		cmds := make([]string, 0)
-		cmds = append(cmds, "configure")
-		cmds = append(cmds, fmt.Sprintf("interface %s", intfName))
-		cmds = append(cmds, fmt.Sprintf("no ip ospf area %s", intfSpec.Area))
-		cmds = append(cmds, "ip ospf passive")
-		cmds = append(cmds, "exit")
-		cmds = append(cmds, "exit")
-
-		_, err := m.vtyshAgent.ExecuteMultilineCommand(cmds)
-		if err != nil {
-			return fmt.Errorf("failed to add interface %s: %v", intfName, err)
-		}
-		return nil
-	}
-
 	cmds := make([]string, 0)
 	cmds = append(cmds, "configure")
 	cmds = append(cmds, fmt.Sprintf("interface %s", intfName))
 	cmds = append(cmds, fmt.Sprintf("ip ospf area %s", intfSpec.Area))
-	cmds = append(cmds, fmt.Sprintf("ip ospf network %s", intfSpec.NetworkType))
+
+	if intfSpec.Passive != nil && *intfSpec.Passive {
+		cmds = append(cmds, "ip ospf passive")
+	} else {
+		cmds = append(cmds, fmt.Sprintf("ip ospf network %s", intfSpec.NetworkType))
+	}
+
 	cmds = append(cmds, "exit")
 	cmds = append(cmds, "exit")
 
