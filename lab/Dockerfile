@@ -5,7 +5,7 @@ ARG TARGETPLATFORM
 # Add FRRouting GPG key
 ADD https://deb.frrouting.org/frr/keys.gpg /usr/share/keyrings/frrouting.gpg
 
-FRRVER="frr-stable"
+ARG FRRVER="frr-stable"
 
 RUN \
   echo deb '[signed-by=/usr/share/keyrings/frrouting.gpg]' https://deb.frrouting.org/frr \
