@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
@@ -9,56 +8,47 @@ import (
 )
 
 func main() {
-	frrReconciler, err := pkgreconcile.NewFRROSPFv2Reconciler("/usr/bin/vtysh")
+
+	pathToVtysh := "/usr/bin/vtysh"
+
+	manager, err := pkgreconcile.NewFRROSPFManager(pathToVtysh)
 	if err != nil {
-		fmt.Println("Error creating FRRVtyshAgent:", err)
+		fmt.Println("Error creating FRR OSPF manager:", err)
 		return
 	}
 
-	vrf := "v1"
+	routerId1 := "0.0.0.1"
+	vrf1 := "v1"
+	routerId2 := "0.0.0.2"
+	vrf2 := "v2"
 	passive := true
 
-	desiredState := networkingv1alpha1.OSPFProtocolSpec{
-		Driver:   networkingv1alpha1.OSPFProtocolTypeFRR,
-		Version:  networkingv1alpha1.OSPFProtocolVersion2,
-		VRF:      &vrf,
-		RouterID: "0.0.0.1",
-		Interfaces: []networkingv1alpha1.OSPFProtocolInterfaceSpec{
-			{InterfaceName: "va", Area: "0.0.0.0", NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
-			{InterfaceName: "d1", Area: "0.0.0.0", Passive: &passive},
-		},
+	ifaceSpecs := []networkingv1alpha1.OSPFProtocolInterfaceSpec{
+		{InterfaceName: "va", Area: "0.0.0.0", NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
+		{InterfaceName: "d1", Area: "0.0.0.0", Passive: &passive},
+		{InterfaceName: "vb", Area: "0.0.0.0", NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
+		{InterfaceName: "d2", Area: "0.0.0.0", Passive: &passive},
 	}
 
-	hasUpdated, err := frrReconciler.DetectChanges(context.Background(), desiredState, nil)
+	err = manager.EnableOSPFv2Router(routerId1, &vrf1)
 	if err != nil {
-		fmt.Println("Error detecting changes:", err)
+		fmt.Println("Error enabling OSPFv2 router:", err)
 		return
 	}
-	fmt.Println("Has updated:", hasUpdated)
 
-	if hasUpdated {
-		maxLoop := 10
-		for hasUpdated && maxLoop > 0 {
-			err = frrReconciler.ApplyReconcile(context.Background(), desiredState)
-			if err != nil {
-				fmt.Println("Error applying reconcile:", err)
-				return
-			}
+	err = manager.EnableOSPFv2Router(routerId2, &vrf2)
+	if err != nil {
+		fmt.Println("Error enabling OSPFv2 router:", err)
+		return
+	}
 
-			frrReconciler.ResetState()
-			hasUpdated, err = frrReconciler.DetectChanges(context.Background(), desiredState, nil)
-			if err != nil {
-				fmt.Println("Error detecting changes:", err)
-				return
-			}
-
-			maxLoop--
-		}
-
-		if hasUpdated && maxLoop == 0 {
-			fmt.Println("Failed to apply reconcile: out of max loops")
+	for _, intf := range ifaceSpecs {
+		err = manager.AddInterface(intf.InterfaceName, &intf)
+		if err != nil {
+			fmt.Println("Error adding interface:", err)
 			return
 		}
 	}
 
+	fmt.Println("Task is successfully completed")
 }
