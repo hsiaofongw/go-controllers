@@ -63,6 +63,9 @@ import (
 //   no router ospf vrf v1
 //   no router ospf vrf v2
 //   !
+//   no vrf v1
+//   no vrf v2
+//   !
 //   interface va
 //     no ip ospf area
 //     no ip ospf network
