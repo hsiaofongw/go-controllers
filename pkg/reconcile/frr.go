@@ -17,6 +17,9 @@ type FRRVtyshAgent struct {
 }
 
 func NewFRRVtyshAgent(vtyshPath string) (*FRRVtyshAgent, error) {
+	if vtyshPath == "" {
+		return nil, fmt.Errorf("vtyshPath is required")
+	}
 	return &FRRVtyshAgent{vtyshPath: vtyshPath}, nil
 }
 
@@ -110,7 +113,7 @@ func (r *FRROSPFv2Reconciler) gatherAllUpdates() bool {
 		r.removedIntfList != nil
 }
 
-type frrifacenetworktype string
+type FRROSPFIfaceNWType string
 
 const (
 	FRRIFACE_NETWORK_TYPE_BROADCAST           = "BROADCAST"
@@ -119,10 +122,10 @@ const (
 )
 
 type FRROSPFIface struct {
-	Area              *string              `json:"area,omitempty"`
-	TimerPassiveIface *bool                `json:"timerPassiveIface,omitempty"`
-	NetworkType       *frrifacenetworktype `json:"networkType,omitempty"`
-	RouterID          *string              `json:"routerId,omitempty"`
+	Area              *string             `json:"area,omitempty"`
+	TimerPassiveIface *bool               `json:"timerPassiveIface,omitempty"`
+	NetworkType       *FRROSPFIfaceNWType `json:"networkType,omitempty"`
+	RouterID          *string             `json:"routerId,omitempty"`
 }
 
 type FRROSPFIfaceList struct {
