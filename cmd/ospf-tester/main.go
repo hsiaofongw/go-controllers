@@ -57,6 +57,33 @@ import (
 // ip l del v2
 // ip l del va # or ip l del vb
 //
+// vtysh commands to do the clean up job:
+//
+// configure
+//   no router ospf vrf v1
+//   no router ospf vrf v2
+//   !
+//   interface va
+//     no ip ospf area
+//     no ip ospf network
+//   exit
+//   !
+//   interface vb
+//     no ip ospf area
+//     no ip ospf network
+//   exit
+//   !
+//   interface d1
+//     no ip ospf area
+//     no ip ospf passive
+//   exit
+//   !
+//   interface d2
+//     no ip ospf area
+//     no ip ospf passive
+//   exit
+// exit
+//
 
 func main() {
 
