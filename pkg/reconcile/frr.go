@@ -75,7 +75,7 @@ type FRROSPFv2Reconciler struct {
 	vtyshAgent             *FRRVtyshAgent
 	needEnableOSPFv2Router bool
 	addedIntfList          map[string]interface{}
-	removedIntfList        map[string]*intf
+	removedIntfList        map[string]*FRROSPFIface
 }
 
 func NewFRROSPFv2Reconciler(vtyshPath string) (*FRROSPFv2Reconciler, error) {
@@ -103,18 +103,18 @@ const (
 	FRRIFACE_NETWORK_TYPE_POINT_TO_MULTIPOINT = "POINTTOMULTIPOINT"
 )
 
-type intf struct {
+type FRROSPFIface struct {
 	Area              *string              `json:"area,omitempty"`
 	TimerPassiveIface *bool                `json:"timerPassiveIface,omitempty"`
 	NetworkType       *frrifacenetworktype `json:"networkType,omitempty"`
 	RouterID          *string              `json:"routerId,omitempty"`
 }
 
-type intflist struct {
-	Interfaces map[string]intf `json:"interfaces,omitempty"`
+type FRROSPFIfaceList struct {
+	Interfaces map[string]FRROSPFIface `json:"interfaces,omitempty"`
 }
 
-func (r *FRROSPFv2Reconciler) getInterfaceList() (map[string]*intf, error) {
+func (r *FRROSPFv2Reconciler) getInterfaceList() (map[string]*FRROSPFIface, error) {
 	output, err := r.vtyshAgent.ExecuteCommand("show ip ospf interface json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute command: %v", err)
@@ -124,13 +124,13 @@ func (r *FRROSPFv2Reconciler) getInterfaceList() (map[string]*intf, error) {
 		return nil, nil
 	}
 
-	intflistobj := new(intflist)
+	intflistobj := new(FRROSPFIfaceList)
 	err = json.Unmarshal(output, intflistobj)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal output: %v", err)
 	}
 
-	res := make(map[string]*intf)
+	res := make(map[string]*FRROSPFIface)
 	if intflistobj.Interfaces != nil {
 		for intfName, intfObj := range intflistobj.Interfaces {
 			res[intfName] = &intfObj
@@ -199,7 +199,7 @@ func (r *FRROSPFv2Reconciler) DetectChanges(ctx context.Context, desiredState in
 		}
 	}
 
-	removedIntfList := make(map[string]*intf)
+	removedIntfList := make(map[string]*FRROSPFIface)
 	for intfName, intfObj := range currentIntfList {
 		if _, ok := specIntfList[intfName]; !ok {
 			removedIntfList[intfName] = intfObj
@@ -290,7 +290,7 @@ func (r *FRROSPFv2Reconciler) deleteOSPFv2Router(vrf *string) error {
 	return nil
 }
 
-func (r *FRROSPFv2Reconciler) deleteInterface(intfName string, intfobj *intf) error {
+func (r *FRROSPFv2Reconciler) deleteInterface(intfName string, intfobj *FRROSPFIface) error {
 
 	cmds := make([]string, 0)
 	cmds = append(cmds, "configure")
