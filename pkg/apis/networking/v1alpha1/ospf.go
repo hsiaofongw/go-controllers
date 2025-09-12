@@ -87,6 +87,9 @@ type OSPFProtocolSpec struct {
 	// Currently only v2 is supported.
 	Version OSPFProtocolVersion `json:"version"`
 
+	// VRF, VRF only supported in FRR
+	VRF *string `json:"vrf,omitempty"`
+
 	// RouterID used to identify the router and indicate the router that generate the LSA,
 	// It is not necessary to be reachable, as long as it is unique across the network.
 	// It can be a string of 4-octet integer or a string of 4 dot-decimal integers,
@@ -97,6 +100,11 @@ type OSPFProtocolSpec struct {
 	// Note: once applied, modify the content of a `OSPFProtocolInterfaceSpec` will not take effect,
 	// the only way to alter the configuration is to delete the old `OSPFProtocolInterfaceSpec` and create a new one.
 	Interfaces []OSPFProtocolInterfaceSpec `json:"interfaces"`
+
+	// For Non-broadcast Multi-access (NBMA) networks or point-to-multipoint networks,
+	// where the neighbor discovery can't be done by multicast flooding and one
+	// have to manually specify the neighbors. Format: A.B.C.D.
+	Neighbors []string `json:"neighbors,omitempty"`
 }
 
 type OSPFProtocolAreaStatus struct {

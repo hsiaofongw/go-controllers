@@ -95,8 +95,19 @@ func (r *FRROSPFv2Reconciler) gatherAllUpdates() bool {
 		r.removedIntfList != nil
 }
 
+type frrifacenetworktype string
+
+const (
+	FRRIFACE_NETWORK_TYPE_BROADCAST           = "BROADCAST"
+	FRRIFACE_NETWORK_TYPE_POINT_TO_POINT      = "POINTTOPOINT"
+	FRRIFACE_NETWORK_TYPE_POINT_TO_MULTIPOINT = "POINTTOMULTIPOINT"
+)
+
 type intf struct {
-	Area string `json:"area,omitempty"`
+	Area              *string              `json:"area,omitempty"`
+	TimerPassiveIface *bool                `json:"timerPassiveIface,omitempty"`
+	NetworkType       *frrifacenetworktype `json:"networkType,omitempty"`
+	RouterID          *string              `json:"routerId,omitempty"`
 }
 
 type intflist struct {
@@ -127,6 +138,31 @@ func (r *FRROSPFv2Reconciler) getInterfaceList() (map[string]*intf, error) {
 	}
 
 	return res, nil
+}
+
+func (r *FRROSPFv2Reconciler) CleanUpResource(ctx context.Context, spec *networkingv1alpha1.OSPFProtocolSpec) error {
+	if spec == nil {
+		return fmt.Errorf("spec is nil")
+	}
+
+	currentIntfList, err := r.getInterfaceList()
+	if err != nil {
+		return fmt.Errorf("failed to get interface list: %v", err)
+	}
+
+	for intfName, intfObj := range currentIntfList {
+		if intfObj.RouterID != nil && *intfObj.RouterID == spec.RouterID {
+			if err := r.deleteInterface(intfName, intfObj); err != nil {
+				return fmt.Errorf("failed to delete interface %s: %v", intfName, err)
+			}
+		}
+	}
+
+	if err := r.deleteOSPFv2Router(spec.VRF); err != nil {
+		return fmt.Errorf("failed to delete OSPFv2 router: %v", err)
+	}
+
+	return nil
 }
 
 func (r *FRROSPFv2Reconciler) DetectChanges(ctx context.Context, desiredState interface{}, statusPtr interface{}) (bool, error) {
@@ -190,7 +226,7 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 			return fmt.Errorf("routerID is required")
 		}
 
-		if err := r.enableOSPFv2Router(routerId); err != nil {
+		if err := r.enableOSPFv2Router(routerId, spec.VRF); err != nil {
 			return fmt.Errorf("failed to enable OSPFv2 router: %v", err)
 		}
 	}
@@ -216,11 +252,15 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 	return nil
 }
 
-func (r *FRROSPFv2Reconciler) enableOSPFv2Router(routerId string) error {
+func (r *FRROSPFv2Reconciler) enableOSPFv2Router(routerId string, vrf *string) error {
 	cmds := make([]string, 0)
 	cmds = append(cmds, "configure")
 	cmds = append(cmds, "router ospf")
-	cmds = append(cmds, fmt.Sprintf("ospf router-id %s", routerId))
+	if vrf != nil && *vrf != "" {
+		cmds = append(cmds, fmt.Sprintf("ospf router-id %s vrf %s", routerId, *vrf))
+	} else {
+		cmds = append(cmds, fmt.Sprintf("ospf router-id %s", routerId))
+	}
 	cmds = append(cmds, "exit")
 	cmds = append(cmds, "exit")
 
@@ -231,12 +271,38 @@ func (r *FRROSPFv2Reconciler) enableOSPFv2Router(routerId string) error {
 	return nil
 }
 
+func (r *FRROSPFv2Reconciler) deleteOSPFv2Router(vrf *string) error {
+	cmds := make([]string, 0)
+	cmds = append(cmds, "configure")
+	if vrf != nil && *vrf != "" {
+		cmds = append(cmds, fmt.Sprintf("no router ospf vrf %s", *vrf))
+	} else {
+		cmds = append(cmds, "no router ospf")
+	}
+
+	cmds = append(cmds, "exit")
+
+	_, err := r.vtyshAgent.ExecuteMultilineCommand(cmds)
+	if err != nil {
+		return fmt.Errorf("failed to delete OSPFv2 router: %v", err)
+	}
+
+	return nil
+}
+
 func (r *FRROSPFv2Reconciler) deleteInterface(intfName string, intfobj *intf) error {
 
 	cmds := make([]string, 0)
 	cmds = append(cmds, "configure")
 	cmds = append(cmds, fmt.Sprintf("interface %s", intfName))
-	cmds = append(cmds, fmt.Sprintf("no ip ospf area %s", intfobj.Area))
+
+	// actually, just 'no ip ospf area' (omitting the area id) also works
+	cmds = append(cmds, fmt.Sprintf("no ip ospf area %s", *intfobj.Area))
+	if intfobj.TimerPassiveIface != nil && *intfobj.TimerPassiveIface {
+		cmds = append(cmds, "no ip ospf passive")
+	} else {
+		cmds = append(cmds, "no ip ospf network")
+	}
 	cmds = append(cmds, "exit")
 	cmds = append(cmds, "exit")
 
