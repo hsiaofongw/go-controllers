@@ -32,6 +32,10 @@ func (c *FakeNetworkingV1alpha1) NetlinkInterfaces() v1alpha1.NetlinkInterfaceIn
 	return newFakeNetlinkInterfaces(c)
 }
 
+func (c *FakeNetworkingV1alpha1) OSPFProtocols() v1alpha1.OSPFProtocolInterface {
+	return newFakeOSPFProtocols(c)
+}
+
 func (c *FakeNetworkingV1alpha1) WireGuardInterfaces() v1alpha1.WireGuardInterfaceInterface {
 	return newFakeWireGuardInterfaces(c)
 }

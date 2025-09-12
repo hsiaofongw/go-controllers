@@ -55,6 +55,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	// Group=networking.dn42.io, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("netlinkinterfaces"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1alpha1().NetlinkInterfaces().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("ospfprotocols"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1alpha1().OSPFProtocols().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("wireguardinterfaces"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Networking().V1alpha1().WireGuardInterfaces().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("wireguardnetworkplans"):

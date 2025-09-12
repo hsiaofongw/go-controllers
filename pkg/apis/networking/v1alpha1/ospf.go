@@ -128,6 +128,12 @@ type OSPFProtocolStatus struct {
 	RouterId *string `json:"routerId,omitempty"`
 
 	Areas []OSPFProtocolAreaStatus `json:"areas,omitempty"`
+
+	VRF *string `json:"vrf,omitempty"`
+
+	Driver *OSPFProtocolDriverType `json:"driver"`
+
+	Version *OSPFProtocolVersion `json:"version"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

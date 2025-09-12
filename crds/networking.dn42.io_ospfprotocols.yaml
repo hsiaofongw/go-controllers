@@ -1,0 +1,160 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: ospfprotocols.networking.dn42.io
+spec:
+  group: networking.dn42.io
+  names:
+    kind: OSPFProtocol
+    listKind: OSPFProtocolList
+    plural: ospfprotocols
+    shortNames:
+    - ospf
+    singular: ospfprotocol
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: OSPFProtocol is a specification for a OSPFProtocol resource
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: OSPFProtocolSpec is the spec for a OSPFProtocol resource
+            properties:
+              driver:
+                description: Currently only frr is supported.
+                type: string
+              interfaces:
+                description: |-
+                  These are interface-specific OSPF configurations.
+                  Note: once applied, modify the content of a `OSPFProtocolInterfaceSpec` will not take effect,
+                  the only way to alter the configuration is to delete the old `OSPFProtocolInterfaceSpec` and create a new one.
+                items:
+                  properties:
+                    area:
+                      description: |-
+                        Area is the area ID of the OSPF protocol.
+                        It can be a string of 4-octet integer or a string of 4 dot-decimal integers,
+                        like "0" or "0.0.0.0" or "1.2.3.4".
+                      type: string
+                    interfaceName:
+                      description: The name of the interface where the OSPF configuration
+                        is applied to.
+                      type: string
+                    networkType:
+                      description: OSPF network type, it affects the way of doing
+                        neighbor discovery.
+                      type: string
+                    passive:
+                      description: |-
+                        Do not speak OSPF on the interface,
+                        but do advertise the interface as a stub link in the router-LSA for this router.
+                        So that the subnet where the interface is connected to will appear as a stub network in the lsdb.
+                      type: boolean
+                  required:
+                  - area
+                  - interfaceName
+                  - networkType
+                  type: object
+                type: array
+              neighbors:
+                description: |-
+                  For Non-broadcast Multi-access (NBMA) networks or point-to-multipoint networks,
+                  where the neighbor discovery can't be done by multicast flooding and one
+                  have to manually specify the neighbors. Format: A.B.C.D.
+                items:
+                  type: string
+                type: array
+              node:
+                type: string
+              routerID:
+                description: |-
+                  RouterID used to identify the router and indicate the router that generate the LSA,
+                  It is not necessary to be reachable, as long as it is unique across the network.
+                  It can be a string of 4-octet integer or a string of 4 dot-decimal integers,
+                  like "0" or "0.0.0.0" or "1.2.3.4".
+                type: string
+              version:
+                description: Currently only v2 is supported.
+                type: string
+              vrf:
+                description: VRF, VRF only supported in FRR
+                type: string
+            required:
+            - driver
+            - interfaces
+            - node
+            - routerID
+            - version
+            type: object
+          status:
+            properties:
+              areas:
+                items:
+                  properties:
+                    area:
+                      type: string
+                    backbone:
+                      type: boolean
+                  required:
+                  - area
+                  type: object
+                type: array
+              driver:
+                type: string
+              hostname:
+                description: |2-
+                   Hostname of the node where the interface is provisioned,
+                  or the hostname of the host of the container in case of containerization.
+                  This is used to identify the node where the interface is provisioned.
+                type: string
+              nodename:
+                description: |-
+                  Node name where the interface is provisioned.
+                  The node name can be overridden by the operator running on the node.
+                type: string
+              observedGeneration:
+                description: The most recent generation observed by the controller.
+                format: int64
+                type: integer
+              routerId:
+                type: string
+              version:
+                type: string
+              vrf:
+                type: string
+            required:
+            - driver
+            - hostname
+            - nodename
+            - observedGeneration
+            - version
+            type: object
+        required:
+        - metadata
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

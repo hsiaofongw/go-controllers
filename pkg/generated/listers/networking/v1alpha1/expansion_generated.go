@@ -22,6 +22,10 @@ package v1alpha1
 // NetlinkInterfaceLister.
 type NetlinkInterfaceListerExpansion interface{}
 
+// OSPFProtocolListerExpansion allows custom methods to be added to
+// OSPFProtocolLister.
+type OSPFProtocolListerExpansion interface{}
+
 // WireGuardInterfaceListerExpansion allows custom methods to be added to
 // WireGuardInterfaceLister.
 type WireGuardInterfaceListerExpansion interface{}

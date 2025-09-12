@@ -20,6 +20,8 @@ package v1alpha1
 
 type NetlinkInterfaceExpansion interface{}
 
+type OSPFProtocolExpansion interface{}
+
 type WireGuardInterfaceExpansion interface{}
 
 type WireGuardNetworkPlanExpansion interface{}

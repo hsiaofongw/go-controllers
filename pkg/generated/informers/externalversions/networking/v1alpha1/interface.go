@@ -26,6 +26,8 @@ import (
 type Interface interface {
 	// NetlinkInterfaces returns a NetlinkInterfaceInformer.
 	NetlinkInterfaces() NetlinkInterfaceInformer
+	// OSPFProtocols returns a OSPFProtocolInformer.
+	OSPFProtocols() OSPFProtocolInformer
 	// WireGuardInterfaces returns a WireGuardInterfaceInformer.
 	WireGuardInterfaces() WireGuardInterfaceInformer
 	// WireGuardNetworkPlans returns a WireGuardNetworkPlanInformer.
@@ -46,6 +48,11 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 // NetlinkInterfaces returns a NetlinkInterfaceInformer.
 func (v *version) NetlinkInterfaces() NetlinkInterfaceInformer {
 	return &netlinkInterfaceInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// OSPFProtocols returns a OSPFProtocolInformer.
+func (v *version) OSPFProtocols() OSPFProtocolInformer {
+	return &oSPFProtocolInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // WireGuardInterfaces returns a WireGuardInterfaceInformer.

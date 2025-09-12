@@ -29,6 +29,7 @@ import (
 type NetworkingV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	NetlinkInterfacesGetter
+	OSPFProtocolsGetter
 	WireGuardInterfacesGetter
 	WireGuardNetworkPlansGetter
 }
@@ -40,6 +41,10 @@ type NetworkingV1alpha1Client struct {
 
 func (c *NetworkingV1alpha1Client) NetlinkInterfaces() NetlinkInterfaceInterface {
 	return newNetlinkInterfaces(c)
+}
+
+func (c *NetworkingV1alpha1Client) OSPFProtocols() OSPFProtocolInterface {
+	return newOSPFProtocols(c)
 }
 
 func (c *NetworkingV1alpha1Client) WireGuardInterfaces() WireGuardInterfaceInterface {
