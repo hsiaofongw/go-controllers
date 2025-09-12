@@ -81,8 +81,8 @@ type Controller struct {
 	// sampleclientset is a clientset for our own API group
 	sampleclientset clientset.Interface
 
-	nlLister v1alpha1Lister.OSPFProtocolLister
-	nlSynced cache.InformerSynced
+	ospfLister v1alpha1Lister.OSPFProtocolLister
+	ospfSynced cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -99,7 +99,7 @@ type Controller struct {
 type ControllerConfig struct {
 	Kubeclientset   kubernetes.Interface
 	Sampleclientset clientset.Interface
-	NetlinkInformer v1alpha1Informer.OSPFProtocolInformer
+	OSPFInformer    v1alpha1Informer.OSPFProtocolInformer
 	NodeName        string
 	Namespace       string
 	VtyshPath       string
@@ -148,8 +148,8 @@ func NewController(
 		dockerClient:    dockerClient,
 		kubeclientset:   config.Kubeclientset,
 		sampleclientset: config.Sampleclientset,
-		nlLister:        config.NetlinkInformer.Lister(),
-		nlSynced:        config.NetlinkInformer.Informer().HasSynced,
+		ospfLister:      config.OSPFInformer.Lister(),
+		ospfSynced:      config.OSPFInformer.Informer().HasSynced,
 		workqueue:       workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:        recorder,
 		nodeName:        config.NodeName,
@@ -161,7 +161,7 @@ func NewController(
 	logger.Info("Setting up event handlers")
 
 	// Set up event handler for when OSPFProtocol resources change
-	config.NetlinkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	config.OSPFInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			nlObj, _ := obj.(*networkingv1alpha1.OSPFProtocol)
 			revLog := pkgutils.RevChangeLog{
@@ -229,7 +229,7 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	logger.Info("Waiting for informer caches to sync")
 
 	if ok := cache.WaitForCacheSync(ctx.Done(),
-		c.nlSynced,
+		c.ospfSynced,
 	); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
@@ -310,37 +310,37 @@ func (c *Controller) enqueueOSPFProtocol(obj interface{}) {
 func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName) error {
 	logger := klog.LoggerWithValues(klog.FromContext(ctx), "objectRef", objectRef)
 
-	logger.V(4).Info("Processing netlinkinterface object update/creation", "object", objectRef.Name)
+	logger.V(4).Info("Processing ospfprotocol object update/creation", "object", objectRef.Name)
 
-	nlObj, err := c.nlLister.OSPFProtocols(c.ns).Get(objectRef.Name)
+	ospfObj, err := c.ospfLister.OSPFProtocols(c.ns).Get(objectRef.Name)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			utilruntime.HandleErrorWithContext(ctx, err, "NetlinkInterface referenced by item in work queue no longer exists", "objectReference", objectRef)
+			utilruntime.HandleErrorWithContext(ctx, err, "OSPFProtocol referenced by item in work queue no longer exists", "objectReference", objectRef)
 			return nil
 		}
 
 		return err
 	}
 
-	nodeName := nlObj.Spec.Node
+	nodeName := ospfObj.Spec.Node
 	if c.nodeName != nodeName {
 		logger.V(4).Info("This node is not responsible for this OSPFProtocol", "objectReference", objectRef)
 		return nil
 	}
 
-	deletionTime := nlObj.GetDeletionTimestamp()
+	deletionTime := ospfObj.GetDeletionTimestamp()
 	if deletionTime != nil {
 		// Clean up underlying resources, then
 		// clear all finalizers from the object
 
-		err := c.reconciler.CleanUpResource(ctx, &nlObj.Spec)
+		err := c.reconciler.CleanUpResource(ctx, &ospfObj.Spec)
 		if err != nil {
 			return fmt.Errorf("failed to clean up underlying resources: %s", err.Error())
 		}
 
-		nlObjCopy := nlObj.DeepCopy()
-		nlObjCopy.SetFinalizers([]string{})
-		_, err = c.sampleclientset.NetworkingV1alpha1().OSPFProtocols(c.ns).Update(context.Background(), nlObjCopy, metav1.UpdateOptions{})
+		ospfObjCopy := ospfObj.DeepCopy()
+		ospfObjCopy.SetFinalizers([]string{})
+		_, err = c.sampleclientset.NetworkingV1alpha1().OSPFProtocols(c.ns).Update(context.Background(), ospfObjCopy, metav1.UpdateOptions{})
 		if err != nil {
 			if !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("failed to clear finalizers from OSPFProtocol, will retry: %s", err.Error())
@@ -350,11 +350,11 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return nil
 	}
 
-	needReconcile := nlObj.GetGeneration() != nlObj.Status.ObservedGeneration
+	needReconcile := ospfObj.GetGeneration() != ospfObj.Status.ObservedGeneration
 	if needReconcile {
-		logger.Info("Need to reconcile", "objectReference", klog.KObj(nlObj), "observedGeneration", nlObj.Status.ObservedGeneration, "generation", nlObj.GetGeneration())
+		logger.Info("Need to reconcile", "objectReference", klog.KObj(ospfObj), "observedGeneration", ospfObj.Status.ObservedGeneration, "generation", ospfObj.GetGeneration())
 
-		hasUpdates, err := c.reconciler.DetectChanges(ctx, &nlObj.Spec, nil)
+		hasUpdates, err := c.reconciler.DetectChanges(ctx, &ospfObj.Spec, nil)
 		if err != nil {
 			return fmt.Errorf("failed to detect changes: %s", err.Error())
 		}
@@ -362,13 +362,13 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		if hasUpdates {
 			maxLoops := 10
 			for hasUpdates && maxLoops > 0 {
-				err = c.reconciler.ApplyReconcile(ctx, &nlObj.Spec)
+				err = c.reconciler.ApplyReconcile(ctx, &ospfObj.Spec)
 				if err != nil {
 					return fmt.Errorf("failed to apply reconcile: %s", err.Error())
 				}
 
 				c.reconciler.ResetState()
-				hasUpdates, err = c.reconciler.DetectChanges(ctx, &nlObj.Spec, nil)
+				hasUpdates, err = c.reconciler.DetectChanges(ctx, &ospfObj.Spec, nil)
 				if err != nil {
 					return fmt.Errorf("failed to detect changes: %s", err.Error())
 				}
@@ -381,9 +381,9 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 			}
 		}
 
-		logger.Info("Updating OSPFProtocol status", "objectReference", klog.KObj(nlObj))
+		logger.Info("Updating OSPFProtocol status", "objectReference", klog.KObj(ospfObj))
 		// Update the status with current OSPFProtocol information
-		err = c.updateOSPFProtocolStatus(ctx, nlObj)
+		err = c.updateOSPFProtocolStatus(ctx, ospfObj)
 		if err != nil {
 			return fmt.Errorf("failed to update OSPFProtocol status: %s", err.Error())
 		}
@@ -393,12 +393,12 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 }
 
 // updateOSPFProtocolStatus updates the status of a OSPFProtocol with current information
-func (c *Controller) updateOSPFProtocolStatus(ctx context.Context, nlObj *networkingv1alpha1.OSPFProtocol) error {
+func (c *Controller) updateOSPFProtocolStatus(ctx context.Context, ospfObj *networkingv1alpha1.OSPFProtocol) error {
 	logger := klog.FromContext(ctx)
 
 	// NEVER modify objects from the store. It's a read-only, local cache.
 	// You can use DeepCopy() to make a deep copy of original object and modify this copy
-	nlObjCopy := nlObj.DeepCopy()
+	ospfObjCopy := ospfObj.DeepCopy()
 
 	status := new(networkingv1alpha1.OSPFProtocolStatus)
 	hostname, err := os.Hostname()
@@ -411,26 +411,26 @@ func (c *Controller) updateOSPFProtocolStatus(ctx context.Context, nlObj *networ
 
 	// todo: check if there are any other fields to be added to the status
 
-	hasUpdates, err := c.reconciler.DetectChanges(ctx, &nlObj.Spec, status)
+	hasUpdates, err := c.reconciler.DetectChanges(ctx, &ospfObj.Spec, status)
 	if err != nil {
 		return fmt.Errorf("failed to detect changes: %s", err.Error())
 	}
 
 	if !hasUpdates {
-		status.ObservedGeneration = nlObj.GetGeneration()
+		status.ObservedGeneration = ospfObj.GetGeneration()
 	}
 	// otherwise, if hasUpdates is true, the status.ObservedGeneration will be the zero value, which
 	// is definitely unmatch with metadata.Generation, so that will trigger the reconcile on the next force-resync.
 
 	// Update the status
-	nlObjCopy.Status = *status
+	ospfObjCopy.Status = *status
 
 	// Use UpdateStatus to update only the Status block of the OSPFProtocol resource
-	_, err = c.sampleclientset.NetworkingV1alpha1().OSPFProtocols(c.ns).UpdateStatus(ctx, nlObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
+	_, err = c.sampleclientset.NetworkingV1alpha1().OSPFProtocols(c.ns).UpdateStatus(ctx, ospfObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
 	if err != nil {
 		return fmt.Errorf("failed to update status: %s", err.Error())
 	}
 
-	logger.V(4).Info("Updated OSPFProtocol status", "objectReference", klog.KObj(nlObjCopy))
+	logger.V(4).Info("Updated OSPFProtocol status", "objectReference", klog.KObj(ospfObjCopy))
 	return nil
 }
