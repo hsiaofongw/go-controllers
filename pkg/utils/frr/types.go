@@ -60,7 +60,7 @@ type FRROSPFIfaceList struct {
 // you can explicitly specify the default vrf e.g. `interface <iface> vrf default`,
 // if you leave the vrf name empty, it can be deduced from the interface properties queried from
 // underlying netlink subsystem, e.g. `interface veth1` could be in vrf default or other vrf,
-// depending which vrf the interface veth1 is/has been enslaved to.
+// depending on which vrf the interface veth1 is/has been enslaved to.
 //
 // All to say, VRFUnspecified doesn't necessarily refers to vrf default,
 // and vrf 'default' does explicitly refers to the default vrf (or vrf default).
