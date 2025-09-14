@@ -58,8 +58,9 @@ spec:
                         like "0" or "0.0.0.0" or "1.2.3.4".
                       type: string
                     interfaceName:
-                      description: The name of the interface where the OSPF configuration
-                        is applied to.
+                      description: |-
+                        The name of the interface where the OSPF configuration is applied to.
+                        The VRF name of the interface is specified implicitly by the moment of creating the interface.
                       type: string
                     networkType:
                       description: OSPF network type, it affects the way of doing
@@ -77,34 +78,44 @@ spec:
                   - networkType
                   type: object
                 type: array
-              neighbors:
-                description: |-
-                  For Non-broadcast Multi-access (NBMA) networks or point-to-multipoint networks,
-                  where the neighbor discovery can't be done by multicast flooding and one
-                  have to manually specify the neighbors. Format: A.B.C.D.
-                items:
-                  type: string
-                type: array
               node:
                 type: string
-              routerID:
+              routers:
                 description: |-
-                  RouterID used to identify the router and indicate the router that generate the LSA,
-                  It is not necessary to be reachable, as long as it is unique across the network.
-                  It can be a string of 4-octet integer or a string of 4 dot-decimal integers,
-                  like "0" or "0.0.0.0" or "1.2.3.4".
-                type: string
+                  Multiple routers can be configured on a single FRR ospfd instance,
+                  however, only one OSPF router instance can use the default vrf.
+                items:
+                  properties:
+                    neighbors:
+                      description: |-
+                        For Non-broadcast Multi-access (NBMA) networks or point-to-multipoint networks,
+                        where the neighbor discovery can't be done by multicast flooding and one
+                        have to manually specify the neighbors. Format: A.B.C.D.
+                      items:
+                        type: string
+                      type: array
+                    routerID:
+                      description: |-
+                        RouterID used to identify the router and indicate the router that generate the LSA,
+                        It is not necessary to be reachable, as long as it is unique across the network.
+                        It can be a string of 4-octet integer or a string of 4 dot-decimal integers,
+                        like "0" or "0.0.0.0" or "1.2.3.4".
+                      type: string
+                    vrf:
+                      description: VRF, VRF only supported in FRR
+                      type: string
+                  required:
+                  - routerID
+                  type: object
+                type: array
               version:
                 description: Currently only v2 is supported.
-                type: string
-              vrf:
-                description: VRF, VRF only supported in FRR
                 type: string
             required:
             - driver
             - interfaces
             - node
-            - routerID
+            - routers
             - version
             type: object
           status:
@@ -137,11 +148,7 @@ spec:
                 description: The most recent generation observed by the controller.
                 format: int64
                 type: integer
-              routerId:
-                type: string
               version:
-                type: string
-              vrf:
                 type: string
             required:
             - driver

@@ -60,6 +60,7 @@ const (
 
 type OSPFProtocolInterfaceSpec struct {
 	// The name of the interface where the OSPF configuration is applied to.
+	// The VRF name of the interface is specified implicitly by the moment of creating the interface.
 	InterfaceName string `json:"interfaceName"`
 
 	// Area is the area ID of the OSPF protocol.
@@ -74,6 +75,26 @@ type OSPFProtocolInterfaceSpec struct {
 	// but do advertise the interface as a stub link in the router-LSA for this router.
 	// So that the subnet where the interface is connected to will appear as a stub network in the lsdb.
 	Passive *bool `json:"passive,omitempty"`
+
+	// One must specify the VRF name to associate it with the VRF-enslaved OSPF router instance
+	// if the VRF name is nil, it is treated as the default VRF
+	VRF *string `json:"vrf,omitempty"`
+}
+
+type OSPFProtocolRouterSpec struct {
+	// VRF, VRF only supported in FRR
+	VRF *string `json:"vrf,omitempty"`
+
+	// RouterID used to identify the router and indicate the router that generate the LSA,
+	// It is not necessary to be reachable, as long as it is unique across the network.
+	// It can be a string of 4-octet integer or a string of 4 dot-decimal integers,
+	// like "0" or "0.0.0.0" or "1.2.3.4".
+	RouterID string `json:"routerID"`
+
+	// For Non-broadcast Multi-access (NBMA) networks or point-to-multipoint networks,
+	// where the neighbor discovery can't be done by multicast flooding and one
+	// have to manually specify the neighbors. Format: A.B.C.D.
+	Neighbors []string `json:"neighbors,omitempty"`
 }
 
 // OSPFProtocolSpec is the spec for a OSPFProtocol resource
@@ -86,24 +107,14 @@ type OSPFProtocolSpec struct {
 	// Currently only v2 is supported.
 	Version OSPFProtocolVersion `json:"version"`
 
-	// VRF, VRF only supported in FRR
-	VRF *string `json:"vrf,omitempty"`
-
-	// RouterID used to identify the router and indicate the router that generate the LSA,
-	// It is not necessary to be reachable, as long as it is unique across the network.
-	// It can be a string of 4-octet integer or a string of 4 dot-decimal integers,
-	// like "0" or "0.0.0.0" or "1.2.3.4".
-	RouterID string `json:"routerID"`
-
 	// These are interface-specific OSPF configurations.
 	// Note: once applied, modify the content of a `OSPFProtocolInterfaceSpec` will not take effect,
 	// the only way to alter the configuration is to delete the old `OSPFProtocolInterfaceSpec` and create a new one.
 	Interfaces []OSPFProtocolInterfaceSpec `json:"interfaces"`
 
-	// For Non-broadcast Multi-access (NBMA) networks or point-to-multipoint networks,
-	// where the neighbor discovery can't be done by multicast flooding and one
-	// have to manually specify the neighbors. Format: A.B.C.D.
-	Neighbors []string `json:"neighbors,omitempty"`
+	// Multiple routers can be configured on a single FRR ospfd instance,
+	// however, only one OSPF router instance can use the default vrf.
+	Routers []OSPFProtocolRouterSpec `json:"routers"`
 }
 
 type OSPFProtocolAreaStatus struct {
@@ -124,11 +135,7 @@ type OSPFProtocolStatus struct {
 	// The most recent generation observed by the controller.
 	ObservedGeneration int64 `json:"observedGeneration"`
 
-	RouterId *string `json:"routerId,omitempty"`
-
 	Areas []OSPFProtocolAreaStatus `json:"areas,omitempty"`
-
-	VRF *string `json:"vrf,omitempty"`
 
 	Driver *OSPFProtocolDriverType `json:"driver"`
 
