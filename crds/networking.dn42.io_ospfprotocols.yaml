@@ -125,17 +125,6 @@ spec:
             type: object
           status:
             properties:
-              areas:
-                items:
-                  properties:
-                    area:
-                      type: string
-                    backbone:
-                      type: boolean
-                  required:
-                  - area
-                  type: object
-                type: array
               driver:
                 type: string
               hostname:
@@ -144,6 +133,35 @@ spec:
                   or the hostname of the host of the container in case of containerization.
                   This is used to identify the node where the interface is provisioned.
                 type: string
+              interfaces:
+                items:
+                  properties:
+                    area:
+                      type: string
+                    ifFlags:
+                      type: string
+                    ifUp:
+                      type: boolean
+                    ifaceName:
+                      type: string
+                    lsaRetransmissions:
+                      type: integer
+                    mtuBytes:
+                      type: integer
+                    nbrAdjacentCount:
+                      type: integer
+                    nbrCount:
+                      type: integer
+                    networkType:
+                      type: string
+                    routerID:
+                      type: string
+                    vrfName:
+                      type: string
+                  required:
+                  - ifaceName
+                  type: object
+                type: array
               nodename:
                 description: |-
                   Node name where the interface is provisioned.
@@ -153,6 +171,40 @@ spec:
                 description: The most recent generation observed by the controller.
                 format: int64
                 type: integer
+              routers:
+                items:
+                  properties:
+                    areas:
+                      items:
+                        properties:
+                          area:
+                            type: string
+                          areaIfActive:
+                            type: integer
+                          areaIfaceTotal:
+                            type: integer
+                          backbone:
+                            type: boolean
+                          lsaNetworkNumber:
+                            type: integer
+                          lsaNumber:
+                            type: integer
+                          lsaRouterNumber:
+                            type: integer
+                          nbrFullAdjacentCount:
+                            type: integer
+                        required:
+                        - area
+                        type: object
+                      type: array
+                    preference:
+                      type: integer
+                    routerID:
+                      type: string
+                    vrfName:
+                      type: string
+                  type: object
+                type: array
               version:
                 type: string
             required:

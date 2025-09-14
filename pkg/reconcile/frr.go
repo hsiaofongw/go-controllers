@@ -211,6 +211,76 @@ func (r *FRROSPFv2Reconciler) detectOSPFv2VRFInterfaceChanges(ctx context.Contex
 	return vrfIfaceDiffs, nil
 }
 
+func (r *FRROSPFv2Reconciler) setStatus(status *networkingv1alpha1.OSPFProtocolStatus, spec *networkingv1alpha1.OSPFProtocolSpec) error {
+	status.Driver = &spec.Driver
+	status.Version = &spec.Version
+	ifacesStatuses := make([]networkingv1alpha1.OSPFProtocolIfaceStatus, 0)
+	rtStatuses := make([]networkingv1alpha1.OSPFProtocolRouterStatus, 0)
+
+	routerList, err := r.manager.GetOSPFVRFList()
+	if err != nil {
+		return fmt.Errorf("failed to get OSPF VRF list: %v", err)
+	}
+
+	if routerList != nil {
+		for vrfName, router := range *routerList {
+			routerSt := new(networkingv1alpha1.OSPFProtocolRouterStatus)
+
+			ifaceList, err := r.manager.GetVRFInterfaceList(vrfName)
+			if err != nil {
+				return fmt.Errorf("failed to get VRF interface list: %v", err)
+			}
+
+			for intfName, intfObj := range ifaceList {
+				ifaceSt := new(networkingv1alpha1.OSPFProtocolIfaceStatus)
+				ifaceSt.VRFName = &vrfName
+				ifaceSt.IfaceName = intfName
+				ifaceSt.IfUp = intfObj.IfUp
+				ifaceSt.MTUBytes = intfObj.MTUBytes
+				ifaceSt.IFFlags = intfObj.IfFlags
+				ifaceSt.Area = intfObj.Area
+				if intfObj.NetworkType != nil {
+					ifaceSt.NetworkType = new(string)
+					*ifaceSt.NetworkType = string(*intfObj.NetworkType)
+				}
+				ifaceSt.NbrAdjacentCount = intfObj.NbrAdjacentCount
+				ifaceSt.LSARetransmissions = intfObj.LSARetranmissions
+				ifaceSt.RouterID = intfObj.RouterID
+
+				ifacesStatuses = append(ifacesStatuses, *ifaceSt)
+			}
+
+			routerSt.VRFName = &vrfName
+			routerSt.RouterID = router.RouterID
+			routerSt.Preference = router.Preference
+
+			if router.Areas != nil {
+				routerSt.Areas = make([]networkingv1alpha1.OSPFProtocolAreaStatus, 0)
+
+				for areaName, area := range router.Areas {
+					areaSt := new(networkingv1alpha1.OSPFProtocolAreaStatus)
+					areaSt.Area = areaName
+					areaSt.Backbone = area.Backbone
+					areaSt.AreaIfaceTotal = area.AreaIfTotalCount
+					areaSt.AreaIfActive = area.AreaIfActiveCount
+					areaSt.NbrFullAdjacentCount = area.NbrFullAdjacentCount
+					areaSt.LSANumber = area.LSANumber
+					areaSt.LSARouterNumber = area.LSARouterNumber
+					areaSt.LSANetworkNumber = area.LSANetworkNumber
+
+					routerSt.Areas = append(routerSt.Areas, *areaSt)
+				}
+			}
+
+			rtStatuses = append(rtStatuses, *routerSt)
+		}
+	}
+
+	status.Interfaces = ifacesStatuses
+	status.Routers = rtStatuses
+	return nil
+}
+
 func indexVRFIfaceMaps(intfSpecs []networkingv1alpha1.OSPFProtocolInterfaceSpec) (map[string]map[string]*networkingv1alpha1.OSPFProtocolInterfaceSpec, error) {
 	vrfIfacesMap := make(map[string]map[string]*networkingv1alpha1.OSPFProtocolInterfaceSpec)
 	for _, intfSpec := range intfSpecs {
@@ -233,6 +303,17 @@ func (r *FRROSPFv2Reconciler) DetectChanges(ctx context.Context, desiredState in
 	spec, ok := desiredState.(*networkingv1alpha1.OSPFProtocolSpec)
 	if !ok {
 		return false, fmt.Errorf("desiredState is not a OSPFProtocolSpec")
+	}
+
+	if statusPtr != nil {
+		status, ok := statusPtr.(*networkingv1alpha1.OSPFProtocolStatus)
+		if !ok {
+			return false, fmt.Errorf("statusPtr is not a OSPFProtocolStatus")
+		}
+
+		if err := r.setStatus(status, spec); err != nil {
+			return false, fmt.Errorf("failed to set status: %v", err)
+		}
 	}
 
 	routersDiff, err := r.detectOSPFv2VRFRouterChanges(ctx, spec.Routers)

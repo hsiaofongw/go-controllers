@@ -117,11 +117,6 @@ type OSPFProtocolSpec struct {
 	Routers []OSPFProtocolRouterSpec `json:"routers"`
 }
 
-type OSPFProtocolAreaStatus struct {
-	Area     string `json:"area"`
-	Backbone *bool  `json:"backbone,omitempty"`
-}
-
 type OSPFProtocolStatus struct {
 	//  Hostname of the node where the interface is provisioned,
 	// or the hostname of the host of the container in case of containerization.
@@ -135,11 +130,45 @@ type OSPFProtocolStatus struct {
 	// The most recent generation observed by the controller.
 	ObservedGeneration int64 `json:"observedGeneration"`
 
-	Areas []OSPFProtocolAreaStatus `json:"areas,omitempty"`
-
 	Driver *OSPFProtocolDriverType `json:"driver"`
 
 	Version *OSPFProtocolVersion `json:"version"`
+
+	Interfaces []OSPFProtocolIfaceStatus `json:"interfaces,omitempty"`
+
+	Routers []OSPFProtocolRouterStatus `json:"routers,omitempty"`
+}
+
+type OSPFProtocolAreaStatus struct {
+	Area                 string `json:"area"`
+	Backbone             *bool  `json:"backbone,omitempty"`
+	AreaIfaceTotal       *int   `json:"areaIfaceTotal,omitempty"`
+	AreaIfActive         *int   `json:"areaIfActive,omitempty"`
+	NbrFullAdjacentCount *int   `json:"nbrFullAdjacentCount,omitempty"`
+	LSANumber            *int   `json:"lsaNumber,omitempty"`
+	LSARouterNumber      *int   `json:"lsaRouterNumber,omitempty"`
+	LSANetworkNumber     *int   `json:"lsaNetworkNumber,omitempty"`
+}
+
+type OSPFProtocolRouterStatus struct {
+	VRFName    *string                  `json:"vrfName,omitempty"`
+	RouterID   *string                  `json:"routerID,omitempty"`
+	Preference *int                     `json:"preference,omitempty"`
+	Areas      []OSPFProtocolAreaStatus `json:"areas,omitempty"`
+}
+
+type OSPFProtocolIfaceStatus struct {
+	VRFName            *string `json:"vrfName,omitempty"`
+	IfaceName          string  `json:"ifaceName"`
+	IfUp               *bool   `json:"ifUp,omitempty"`
+	MTUBytes           *int    `json:"mtuBytes,omitempty"`
+	IFFlags            *string `json:"ifFlags,omitempty"`
+	Area               *string `json:"area,omitempty"`
+	NetworkType        *string `json:"networkType,omitempty"`
+	NrNeighbors        *int    `json:"nbrCount,omitempty"`
+	NbrAdjacentCount   *int    `json:"nbrAdjacentCount,omitempty"`
+	LSARetransmissions *int    `json:"lsaRetransmissions,omitempty"`
+	RouterID           *string `json:"routerID,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

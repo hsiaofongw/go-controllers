@@ -9,14 +9,21 @@ type FRROSPFManager struct {
 }
 
 type FRROSPFAreaDetail struct {
-	Backbone *bool `json:"backbone,omitempty"`
+	Backbone             *bool `json:"backbone,omitempty"`
+	AreaIfTotalCount     *int  `json:"areaIfTotalCount,omitempty"`
+	AreaIfActiveCount    *int  `json:"areaIfActiveCount,omitempty"`
+	NbrFullAdjacentCount *int  `json:"nbrFullAdjacentCount,omitempty"`
+	LSANumber            *int  `json:"lsaNumber,omitempty"`
+	LSARouterNumber      *int  `json:"lsaRouterNumber,omitempty"`
+	LSANetworkNumber     *int  `json:"lsaNetworkNumber,omitempty"`
 }
 
 type FRROSPFVRFDetail struct {
-	VRFName  *string                      `json:"vrfName,omitempty"`
-	VRFID    *int                         `json:"vrfId,omitempty"`
-	RouterID *string                      `json:"routerId,omitempty"`
-	Areas    map[string]FRROSPFAreaDetail `json:"areas,omitempty"`
+	VRFName    *string                      `json:"vrfName,omitempty"`
+	VRFID      *int                         `json:"vrfId,omitempty"`
+	RouterID   *string                      `json:"routerId,omitempty"`
+	Areas      map[string]FRROSPFAreaDetail `json:"areas,omitempty"`
+	Preference *int                         `json:"preference,omitempty"`
 }
 
 type FRROSPFVRFList map[string]FRROSPFVRFDetail
@@ -44,10 +51,22 @@ const (
 )
 
 type FRROSPFIface struct {
+	IfUp              *bool               `json:"ifUp,omitempty"`
+	MTUBytes          *int                `json:"mtuBytes,omitempty"`
+	IfFlags           *string             `json:"ifFlags,omitempty"`
 	Area              *string             `json:"area,omitempty"`
-	TimerPassiveIface *bool               `json:"timerPassiveIface,omitempty"`
-	NetworkType       *FRROSPFIfaceNWType `json:"networkType,omitempty"`
 	RouterID          *string             `json:"routerId,omitempty"`
+	NetworkType       *FRROSPFIfaceNWType `json:"networkType,omitempty"`
+	Cost              *int                `json:"cost,omitempty"`
+	TransmitDelaySecs *int                `json:"transmitDelaySecs,omitempty"`
+	State             *string             `json:"state,omitempty"`
+
+	TimerPassiveIface *bool `json:"timerPassiveIface,omitempty"`
+
+	NbrCount         *int `json:"nbrCount,omitempty"`
+	NbrAdjacentCount *int `json:"nbrAdjacentCount,omitempty"`
+
+	LSARetranmissions *int `json:"lsaRetranmissions,omitempty"`
 }
 
 type FRROSPFIfaceList struct {
