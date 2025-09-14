@@ -94,10 +94,10 @@ import (
 
 func main() {
 
-	routerId1 := "0.0.0.1"
-	vrf1 := "v1"
-	routerId2 := "0.0.0.2"
-	vrf2 := "v2"
+	// routerId1 := "0.0.0.1"
+	// vrf1 := "v1"
+	// routerId2 := "0.0.0.2"
+	// vrf2 := "v2"
 	passive := true
 	routerId3 := "10.3.82.1"
 	vrfDefault := pkgutilsfrr.FRRVRFDefault
@@ -105,13 +105,13 @@ func main() {
 
 	ifaceSpecs := []networkingv1alpha1.OSPFProtocolInterfaceSpec{
 
-		// vrf v1
-		{InterfaceName: "va", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf1},
-		{InterfaceName: "d1", Area: area0, Passive: &passive, VRF: &vrf1},
+		// // vrf v1
+		// {InterfaceName: "va", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf1},
+		// {InterfaceName: "d1", Area: area0, Passive: &passive, VRF: &vrf1},
 
-		// vrf v2
-		{InterfaceName: "vb", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf2},
-		{InterfaceName: "d2", Area: area0, Passive: &passive, VRF: &vrf2},
+		// // vrf v2
+		// {InterfaceName: "vb", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf2},
+		// {InterfaceName: "d2", Area: area0, Passive: &passive, VRF: &vrf2},
 
 		// vrf default
 		{InterfaceName: "dummy-wien1", Area: area0, Passive: &passive, VRF: &vrfDefault},
@@ -121,8 +121,8 @@ func main() {
 	}
 
 	routerSpecs := []networkingv1alpha1.OSPFProtocolRouterSpec{
-		{RouterID: routerId1, VRF: &vrf1},
-		{RouterID: routerId2, VRF: &vrf2},
+		// {RouterID: routerId1, VRF: &vrf1},
+		// {RouterID: routerId2, VRF: &vrf2},
 		{RouterID: routerId3, VRF: &vrfDefault},
 	}
 
