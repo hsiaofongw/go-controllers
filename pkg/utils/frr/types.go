@@ -56,5 +56,21 @@ type FRROSPFIfaceList struct {
 	Interfaces map[string]FRROSPFIface `json:"interfaces,omitempty"`
 }
 
+// In FRR vtysh, sometimes you can explicitly specify the vrf context,
+// you can explicitly specify the default vrf e.g. `interface <iface> vrf default`,
+// if you leave the vrf name empty, it can be deduced from the interface properties queried from
+// underlying netlink subsystem, e.g. `interface veth1` could be in vrf default or other vrf,
+// depending which vrf the interface veth1 is/has been enslaved to.
+//
+// All to say, VRFUnspecified doesn't necessarily refers to vrf default,
+// and vrf 'default' does explicitly refers to the default vrf (or vrf default).
+//
+// However, in some contexts, such as `router ospf <vrf>`, the VRFUnspecified here does
+// always refers to vrf default no matter what.
+//
+// Also, we assume that no one will ever try to use some special vrf name like 'default' or 'all',
+// since they serves as special purpose.
+// For example, create and use a vrf with specialized name like 'default' or 'all'
+// `ip l add default type vrf` or `ip l add all type vrf` will lead to un-expected behaviors.
 const FRRVRFUnspecified string = ""
 const FRRVRFDefault string = "default"

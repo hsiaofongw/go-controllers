@@ -230,7 +230,22 @@ func (r *FRROSPFv2Reconciler) DetectChanges(ctx context.Context, desiredState in
 }
 
 func (r *FRROSPFv2Reconciler) applyOSPFv2VRFRouterChanges(ctx context.Context, routersDiff *FRROSPFv2ReconcilerRoutersDiff) error {
-	// todo
+	if routersDiff.RemovedRouterList != nil {
+		for vrfName := range routersDiff.RemovedRouterList {
+			if err := r.manager.DeleteOSPFv2Router(&vrfName); err != nil {
+				return fmt.Errorf("failed to delete OSPF VRF router %s: %v", vrfName, err)
+			}
+		}
+	}
+
+	if routersDiff.AddedRouterList != nil {
+		for vrfName, routerSpec := range routersDiff.AddedRouterList {
+			if err := r.manager.EnableOSPFv2Router(routerSpec.RouterID, &vrfName); err != nil {
+				return fmt.Errorf("failed to add OSPF VRF router %s: %v", vrfName, err)
+			}
+		}
+	}
+
 	return nil
 }
 
