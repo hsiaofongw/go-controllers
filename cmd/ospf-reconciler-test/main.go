@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	pkgreconcile "k8s.io/sample-controller/pkg/reconcile"
@@ -98,17 +99,31 @@ func main() {
 	routerId2 := "0.0.0.2"
 	vrf2 := "v2"
 	passive := true
+	routerId3 := "10.3.82.1"
+	vrfDefault := pkgutilsfrr.FRRVRFDefault
+	area0 := "0.0.0.0"
 
 	ifaceSpecs := []networkingv1alpha1.OSPFProtocolInterfaceSpec{
-		{InterfaceName: "va", Area: "0.0.0.0", NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf1},
-		{InterfaceName: "d1", Area: "0.0.0.0", Passive: &passive, VRF: &vrf1},
-		{InterfaceName: "vb", Area: "0.0.0.0", NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf2},
-		{InterfaceName: "d2", Area: "0.0.0.0", Passive: &passive, VRF: &vrf2},
+
+		// vrf v1
+		{InterfaceName: "va", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf1},
+		{InterfaceName: "d1", Area: area0, Passive: &passive, VRF: &vrf1},
+
+		// vrf v2
+		{InterfaceName: "vb", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf2},
+		{InterfaceName: "d2", Area: area0, Passive: &passive, VRF: &vrf2},
+
+		// vrf default
+		{InterfaceName: "dummy-wien1", Area: area0, Passive: &passive, VRF: &vrfDefault},
+		{InterfaceName: "wg-wien1-frank1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
+		{InterfaceName: "wg-wien1-mnz1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
+		{InterfaceName: "wg-wien1-sgp1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
 	}
 
 	routerSpecs := []networkingv1alpha1.OSPFProtocolRouterSpec{
 		{RouterID: routerId1, VRF: &vrf1},
 		{RouterID: routerId2, VRF: &vrf2},
+		{RouterID: routerId3, VRF: &vrfDefault},
 	}
 
 	ospfSpec := &networkingv1alpha1.OSPFProtocolSpec{
@@ -144,6 +159,7 @@ func main() {
 
 	maxLoops := 10
 	for hasUpdates && maxLoops > 0 {
+		time.Sleep(1 * time.Second)
 
 		log.Println("Applying reconcile", "maxLoops", maxLoops)
 		err = reconciler.ApplyReconcile(context.Background(), ospfSpec)
