@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
-	pkgreconcile "k8s.io/sample-controller/pkg/reconcile"
+	pkgutilsfrr "k8s.io/sample-controller/pkg/utils/frr"
 )
 
 // To prepare the environment:
@@ -92,7 +92,7 @@ func main() {
 
 	pathToVtysh := "/usr/bin/vtysh"
 
-	manager, err := pkgreconcile.NewFRROSPFManager(pathToVtysh)
+	manager, err := pkgutilsfrr.NewFRROSPFManager(pathToVtysh)
 	if err != nil {
 		fmt.Println("Error creating FRR OSPF manager:", err)
 		return
@@ -124,7 +124,7 @@ func main() {
 	}
 
 	for _, intf := range ifaceSpecs {
-		err = manager.AddInterface(intf.InterfaceName, &intf)
+		err = manager.AddInterface(intf.InterfaceName, &intf, pkgutilsfrr.FRRVRFUnspecified)
 		if err != nil {
 			fmt.Println("Error adding interface:", err)
 			return
