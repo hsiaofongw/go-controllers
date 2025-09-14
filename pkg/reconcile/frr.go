@@ -13,6 +13,14 @@ type FRROSPFv2ReconcilerIfaceDiff struct {
 	RemovedIfaces map[string]*pkgutilsfrr.FRROSPFIface
 }
 
+func (ifaceDiff *FRROSPFv2ReconcilerIfaceDiff) HasUpdates() bool {
+	if ifaceDiff == nil {
+		return false
+	}
+
+	return len(ifaceDiff.AddedIfaces)+len(ifaceDiff.RemovedIfaces) > 0
+}
+
 type FRROSPFv2ReconcilerRoutersDiff struct {
 	// key is the vrf name, the name for the default vrf is always 'default'
 	// value is spec of the router to be added
@@ -22,11 +30,31 @@ type FRROSPFv2ReconcilerRoutersDiff struct {
 	RemovedRouterList map[string]interface{}
 }
 
+type FRROSPFv2IfaceDiffMap map[string]FRROSPFv2ReconcilerIfaceDiff
+
+func (m FRROSPFv2IfaceDiffMap) HasUpdates() bool {
+	if m == nil {
+		return false
+	}
+
+	if len(m) == 0 {
+		return false
+	}
+
+	for _, ifaceDiff := range m {
+		if ifaceDiff.HasUpdates() {
+			return true
+		}
+	}
+
+	return false
+}
+
 type FRROSPFv2Reconciler struct {
 	manager *pkgutilsfrr.FRROSPFManager
 
 	// key is the vrf name, the name for the default vrf is always 'default'
-	IfaceDiffs map[string]FRROSPFv2ReconcilerIfaceDiff
+	IfaceDiffs FRROSPFv2IfaceDiffMap
 
 	RoutersDiffs *FRROSPFv2ReconcilerRoutersDiff
 }
@@ -40,7 +68,7 @@ func NewFRROSPFv2Reconciler(frrCfgMgr *pkgutilsfrr.FRROSPFManager) (*FRROSPFv2Re
 
 func (r *FRROSPFv2Reconciler) gatherAllUpdates() bool {
 	return r.RoutersDiffs != nil ||
-		r.IfaceDiffs != nil
+		r.IfaceDiffs.HasUpdates()
 }
 
 func (r *FRROSPFv2Reconciler) CleanUpResource(ctx context.Context, spec *networkingv1alpha1.OSPFProtocolSpec) error {
@@ -188,7 +216,7 @@ func indexVRFIfaceMaps(intfSpecs []networkingv1alpha1.OSPFProtocolInterfaceSpec)
 	for _, intfSpec := range intfSpecs {
 		vrfName := pkgutilsfrr.FRRVRFDefault
 		if intfSpec.VRF != nil && *intfSpec.VRF != pkgutilsfrr.FRRVRFUnspecified {
-			vrfName = pkgutilsfrr.FRRVRFDefault
+			vrfName = *intfSpec.VRF
 		}
 
 		if _, ok := vrfIfacesMap[vrfName]; !ok {
@@ -280,7 +308,7 @@ func (r *FRROSPFv2Reconciler) ApplyReconcile(ctx context.Context, desiredState i
 		}
 	}
 
-	if r.IfaceDiffs != nil {
+	if r.IfaceDiffs.HasUpdates() {
 		if err := r.applyOSPFv2VRFInterfaceChanges(ctx, r.IfaceDiffs); err != nil {
 			return fmt.Errorf("failed to apply OSPF VRF interface changes: %v", err)
 		}
