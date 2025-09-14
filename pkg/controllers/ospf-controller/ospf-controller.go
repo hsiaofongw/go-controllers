@@ -31,6 +31,7 @@ import (
 
 	pkgreconcile "k8s.io/sample-controller/pkg/reconcile"
 	pkgutils "k8s.io/sample-controller/pkg/utils"
+	pkgutilsfrr "k8s.io/sample-controller/pkg/utils/frr"
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -138,7 +139,13 @@ func NewController(
 		return nil
 	}
 
-	reconciler, err := pkgreconcile.NewFRROSPFv2Reconciler(config.VtyshPath)
+	frrCfgMgr, err := pkgutilsfrr.NewFRROSPFManager(config.VtyshPath)
+	if err != nil {
+		logger.Error(err, "Error creating FRR OSPF manager", "vtyshPath", config.VtyshPath)
+		return nil
+	}
+
+	reconciler, err := pkgreconcile.NewFRROSPFv2Reconciler(frrCfgMgr)
 	if err != nil {
 		logger.Error(err, "Error creating reconciler", "vtyshPath", config.VtyshPath)
 		return nil

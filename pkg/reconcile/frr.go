@@ -31,13 +31,9 @@ type FRROSPFv2Reconciler struct {
 	RoutersDiffs *FRROSPFv2ReconcilerRoutersDiff
 }
 
-func NewFRROSPFv2Reconciler(vtyshPath string) (*FRROSPFv2Reconciler, error) {
-	manager, err := pkgutilsfrr.NewFRROSPFManager(vtyshPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create FRR OSPF manager: %v", err)
-	}
+func NewFRROSPFv2Reconciler(frrCfgMgr *pkgutilsfrr.FRROSPFManager) (*FRROSPFv2Reconciler, error) {
 	reconciler := &FRROSPFv2Reconciler{
-		manager: manager,
+		manager: frrCfgMgr,
 	}
 	return reconciler, nil
 }
