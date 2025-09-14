@@ -99,13 +99,12 @@ func (m *FRROSPFManager) GetVRFInterfaceList(vrf string) (map[string]*FRROSPFIfa
 
 func (m *FRROSPFManager) GetOSPFVRFBriefList() (*FRROSPFVRFBriefList, error) {
 	res := new(FRROSPFVRFBriefList)
-	output, err := m.vtyshAgent.ExecuteCommand("show ip ospf vrf all brief json")
-
 	emptyResult := new(FRROSPFVRFBriefList)
 	emptyResult.VRFs = make(map[string]FRROSPFVRFBrief)
 	emptyResult.TotalVRFs = new(int)
 	*emptyResult.TotalVRFs = 0
 
+	output, err := m.vtyshAgent.ExecuteCommand("show ip ospf vrfs json")
 	if err != nil {
 		return emptyResult, fmt.Errorf("failed to execute command: %v", err)
 	}

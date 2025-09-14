@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
 
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
+	pkgreconcile "k8s.io/sample-controller/pkg/reconcile"
 	pkgutilsfrr "k8s.io/sample-controller/pkg/utils/frr"
 )
 
@@ -90,14 +93,6 @@ import (
 
 func main() {
 
-	pathToVtysh := "/usr/bin/vtysh"
-
-	manager, err := pkgutilsfrr.NewFRROSPFManager(pathToVtysh)
-	if err != nil {
-		fmt.Println("Error creating FRR OSPF manager:", err)
-		return
-	}
-
 	routerId1 := "0.0.0.1"
 	vrf1 := "v1"
 	routerId2 := "0.0.0.2"
@@ -111,25 +106,69 @@ func main() {
 		{InterfaceName: "d2", Area: "0.0.0.0", Passive: &passive},
 	}
 
-	err = manager.EnableOSPFv2Router(routerId1, &vrf1)
+	routerSpecs := []networkingv1alpha1.OSPFProtocolRouterSpec{
+		{RouterID: routerId1, VRF: &vrf1},
+		{RouterID: routerId2, VRF: &vrf2},
+	}
+
+	ospfSpec := &networkingv1alpha1.OSPFProtocolSpec{
+		Driver:     networkingv1alpha1.OSPFProtocolTypeFRR,
+		Version:    networkingv1alpha1.OSPFProtocolVersion2,
+		Interfaces: ifaceSpecs,
+		Routers:    routerSpecs,
+	}
+
+	pathToVtysh := "/usr/bin/vtysh"
+	frrManager, err := pkgutilsfrr.NewFRROSPFManager(pathToVtysh)
 	if err != nil {
-		fmt.Println("Error enabling OSPFv2 router:", err)
+		fmt.Println("Error creating FRR OSPF manager:", err)
 		return
 	}
 
-	err = manager.EnableOSPFv2Router(routerId2, &vrf2)
+	reconciler, err := pkgreconcile.NewFRROSPFv2Reconciler(frrManager)
 	if err != nil {
-		fmt.Println("Error enabling OSPFv2 router:", err)
+		fmt.Println("Error creating FRR OSPF reconciler:", err)
 		return
 	}
 
-	for _, intf := range ifaceSpecs {
-		err = manager.AddInterface(intf.InterfaceName, &intf, pkgutilsfrr.FRRVRFUnspecified)
+	reconciler.ResetState()
+
+	log.Println("Detecting changes")
+	hasUpdates, err := reconciler.DetectChanges(context.Background(), ospfSpec, nil)
+	if err != nil {
+		fmt.Println("Error detecting changes:", err)
+		return
+	}
+
+	log.Println("hasUpdates:", hasUpdates)
+
+	maxLoops := 10
+	for hasUpdates && maxLoops > 0 {
+
+		log.Println("Applying reconcile", "maxLoops", maxLoops)
+		err = reconciler.ApplyReconcile(context.Background(), ospfSpec)
 		if err != nil {
-			fmt.Println("Error adding interface:", err)
+			fmt.Println("Error applying reconcile:", err)
 			return
 		}
+
+		log.Println("Resetting state")
+		reconciler.ResetState()
+
+		log.Println("Detecting changes")
+		hasUpdates, err = reconciler.DetectChanges(context.Background(), ospfSpec, nil)
+		if err != nil {
+			fmt.Println("Error detecting changes:", err)
+			return
+		}
+		log.Println("hasUpdates:", hasUpdates)
+
+		maxLoops--
 	}
 
-	fmt.Println("Task is successfully completed")
+	if hasUpdates && maxLoops == 0 {
+		panic("Max loops reached")
+	}
+
+	log.Println("Done")
 }

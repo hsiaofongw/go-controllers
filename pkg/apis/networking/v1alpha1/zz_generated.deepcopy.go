@@ -648,6 +648,11 @@ func (in *OSPFProtocolInterfaceSpec) DeepCopyInto(out *OSPFProtocolInterfaceSpec
 		*out = new(bool)
 		**out = **in
 	}
+	if in.VRF != nil {
+		in, out := &in.VRF, &out.VRF
+		*out = new(string)
+		**out = **in
+	}
 	return
 }
 

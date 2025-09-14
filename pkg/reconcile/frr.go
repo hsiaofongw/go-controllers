@@ -202,7 +202,7 @@ func indexVRFIfaceMaps(intfSpecs []networkingv1alpha1.OSPFProtocolInterfaceSpec)
 }
 
 func (r *FRROSPFv2Reconciler) DetectChanges(ctx context.Context, desiredState interface{}, statusPtr interface{}) (bool, error) {
-	spec, ok := desiredState.(networkingv1alpha1.OSPFProtocolSpec)
+	spec, ok := desiredState.(*networkingv1alpha1.OSPFProtocolSpec)
 	if !ok {
 		return false, fmt.Errorf("desiredState is not a OSPFProtocolSpec")
 	}

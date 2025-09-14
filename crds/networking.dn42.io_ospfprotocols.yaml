@@ -72,6 +72,11 @@ spec:
                         but do advertise the interface as a stub link in the router-LSA for this router.
                         So that the subnet where the interface is connected to will appear as a stub network in the lsdb.
                       type: boolean
+                    vrf:
+                      description: |-
+                        One must specify the VRF name to associate it with the VRF-enslaved OSPF router instance
+                        if the VRF name is nil, it is treated as the default VRF
+                      type: string
                   required:
                   - area
                   - interfaceName

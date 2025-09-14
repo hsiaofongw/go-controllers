@@ -14,7 +14,7 @@ type FRROSPFAreaDetail struct {
 
 type FRROSPFVRFDetail struct {
 	VRFName  *string                      `json:"vrfName,omitempty"`
-	VRFID    *string                      `json:"vrfId,omitempty"`
+	VRFID    *int                         `json:"vrfId,omitempty"`
 	RouterID *string                      `json:"routerId,omitempty"`
 	Areas    map[string]FRROSPFAreaDetail `json:"areas,omitempty"`
 }
@@ -52,7 +52,7 @@ type FRROSPFIface struct {
 
 type FRROSPFIfaceList struct {
 	VRFName    *string                 `json:"vrfName,omitempty"`
-	VRFID      *string                 `json:"vrfId,omitempty"`
+	VRFID      *int                    `json:"vrfId,omitempty"`
 	Interfaces map[string]FRROSPFIface `json:"interfaces,omitempty"`
 }
 
