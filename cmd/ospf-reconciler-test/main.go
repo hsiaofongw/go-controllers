@@ -6,10 +6,17 @@ import (
 	"log"
 	"time"
 
+	yamlv3 "gopkg.in/yaml.v3"
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	pkgreconcile "k8s.io/sample-controller/pkg/reconcile"
 	pkgutilsfrr "k8s.io/sample-controller/pkg/utils/frr"
 )
+
+// This is a tester program for testing the OSPF reconciliation capability of the OSPF controller.
+// First, you must prepare the environment by running the following commands.
+// then, compile and run the program (or just go run <path-to-this-file>),
+// it will detect any deviations between the desired state and the current state, and reconverge both.
+// At the end, it will print the latest status object in YAML format.
 
 // To prepare the environment:
 //
@@ -94,10 +101,10 @@ import (
 
 func main() {
 
-	// routerId1 := "0.0.0.1"
-	// vrf1 := "v1"
-	// routerId2 := "0.0.0.2"
-	// vrf2 := "v2"
+	routerId1 := "0.0.0.1"
+	vrf1 := "v1"
+	routerId2 := "0.0.0.2"
+	vrf2 := "v2"
 	passive := true
 	routerId3 := "10.3.82.1"
 	vrfDefault := pkgutilsfrr.FRRVRFDefault
@@ -105,13 +112,13 @@ func main() {
 
 	ifaceSpecs := []networkingv1alpha1.OSPFProtocolInterfaceSpec{
 
-		// // vrf v1
-		// {InterfaceName: "va", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf1},
-		// {InterfaceName: "d1", Area: area0, Passive: &passive, VRF: &vrf1},
+		// vrf v1
+		{InterfaceName: "va", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf1},
+		{InterfaceName: "d1", Area: area0, Passive: &passive, VRF: &vrf1},
 
-		// // vrf v2
-		// {InterfaceName: "vb", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf2},
-		// {InterfaceName: "d2", Area: area0, Passive: &passive, VRF: &vrf2},
+		// vrf v2
+		{InterfaceName: "vb", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf2},
+		{InterfaceName: "d2", Area: area0, Passive: &passive, VRF: &vrf2},
 
 		// vrf default
 		{InterfaceName: "dummy-wien1", Area: area0, Passive: &passive, VRF: &vrfDefault},
@@ -121,8 +128,13 @@ func main() {
 	}
 
 	routerSpecs := []networkingv1alpha1.OSPFProtocolRouterSpec{
-		// {RouterID: routerId1, VRF: &vrf1},
-		// {RouterID: routerId2, VRF: &vrf2},
+		// vrf v1
+		{RouterID: routerId1, VRF: &vrf1},
+
+		// vrf v2
+		{RouterID: routerId2, VRF: &vrf2},
+
+		// vrf default (aka. default vrf)
 		{RouterID: routerId3, VRF: &vrfDefault},
 	}
 
@@ -146,10 +158,10 @@ func main() {
 		return
 	}
 
-	reconciler.ResetState()
+	statusObj := new(networkingv1alpha1.OSPFProtocolStatus)
 
 	log.Println("Detecting changes")
-	hasUpdates, err := reconciler.DetectChanges(context.Background(), ospfSpec, nil)
+	hasUpdates, err := reconciler.DetectChanges(context.Background(), ospfSpec, statusObj)
 	if err != nil {
 		fmt.Println("Error detecting changes:", err)
 		return
@@ -172,7 +184,7 @@ func main() {
 		reconciler.ResetState()
 
 		log.Println("Detecting changes")
-		hasUpdates, err = reconciler.DetectChanges(context.Background(), ospfSpec, nil)
+		hasUpdates, err = reconciler.DetectChanges(context.Background(), ospfSpec, statusObj)
 		if err != nil {
 			fmt.Println("Error detecting changes:", err)
 			return
@@ -187,4 +199,14 @@ func main() {
 	}
 
 	log.Println("Done")
+
+	fmt.Println("latest Status obj:")
+	var statusObjYaml []byte
+	statusObjYaml, err = yamlv3.Marshal(statusObj)
+	if err != nil {
+		fmt.Println("Error marshalling status obj:", err)
+		return
+	}
+	statusObjYamlStr := string(statusObjYaml)
+	fmt.Println(statusObjYamlStr)
 }
