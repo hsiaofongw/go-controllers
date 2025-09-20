@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	yamlv3 "gopkg.in/yaml.v3"
@@ -17,6 +18,10 @@ import (
 // then, compile and run the program (or just go run <path-to-this-file>),
 // it will detect any deviations between the desired state and the current state, and reconverge both.
 // At the end, it will print the latest status object in YAML format.
+//
+// Synopsis:
+// go run <path-to-this-file> --spec1
+// go run <path-to-this-file> --spec2
 
 // To prepare the environment:
 //
@@ -99,8 +104,7 @@ import (
 // exit
 //
 
-func main() {
-
+func getSpec1() *networkingv1alpha1.OSPFProtocolSpec {
 	routerId1 := "0.0.0.1"
 	vrf1 := "v1"
 	routerId2 := "0.0.0.2"
@@ -144,6 +148,58 @@ func main() {
 		Interfaces: ifaceSpecs,
 		Routers:    routerSpecs,
 	}
+
+	return ospfSpec
+}
+
+// the only difference between getSpec1() and getSpec2() is that getSpec2()
+// removes the VRF-enslaved routers and interfaces from the spec.
+func getSpec2() *networkingv1alpha1.OSPFProtocolSpec {
+
+	passive := true
+	routerId3 := "10.3.82.1"
+	vrfDefault := pkgutilsfrr.FRRVRFDefault
+	area0 := "0.0.0.0"
+
+	ifaceSpecs := []networkingv1alpha1.OSPFProtocolInterfaceSpec{
+		// vrf default
+		{InterfaceName: "dummy-wien1", Area: area0, Passive: &passive, VRF: &vrfDefault},
+		{InterfaceName: "wg-wien1-frank1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
+		{InterfaceName: "wg-wien1-mnz1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
+		{InterfaceName: "wg-wien1-sgp1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
+	}
+
+	routerSpecs := []networkingv1alpha1.OSPFProtocolRouterSpec{
+		// vrf default (aka. default vrf)
+		{RouterID: routerId3, VRF: &vrfDefault},
+	}
+
+	ospfSpec := &networkingv1alpha1.OSPFProtocolSpec{
+		Driver:     networkingv1alpha1.OSPFProtocolTypeFRR,
+		Version:    networkingv1alpha1.OSPFProtocolVersion2,
+		Interfaces: ifaceSpecs,
+		Routers:    routerSpecs,
+	}
+
+	return ospfSpec
+}
+
+func getSpec(args []string) (*networkingv1alpha1.OSPFProtocolSpec, string) {
+	for _, arg := range args {
+		if arg == "--spec1" {
+			return getSpec1(), "spec1"
+		}
+		if arg == "--spec2" {
+			return getSpec2(), "spec2"
+		}
+	}
+	return getSpec1(), "spec1"
+}
+
+func main() {
+
+	ospfSpec, specName := getSpec(os.Args[1:])
+	log.Println("Using spec:", specName)
 
 	pathToVtysh := "/usr/bin/vtysh"
 	frrManager, err := pkgutilsfrr.NewFRROSPFManager(pathToVtysh)
