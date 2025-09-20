@@ -177,7 +177,7 @@ func NewController(
 				ObservedGeneration: fmt.Sprintf("%d", nlObj.Status.ObservedGeneration),
 			}
 			revLogJSON, _ := json.Marshal(revLog)
-			logger.Info("AddFunc for NetlinkInterface resource is called", "objectReference", klog.KObj(nlObj), "Revision log", string(revLogJSON))
+			logger.Info("AddFunc for OSPFProtocol resource is called", "objectReference", klog.KObj(nlObj), "Revision log", string(revLogJSON))
 			controller.enqueueOSPFProtocol(nlObj)
 		},
 		UpdateFunc: func(old, new interface{}) {
@@ -195,12 +195,12 @@ func NewController(
 				ObservedGeneration: fmt.Sprintf("%d -> %d", oldNl.Status.ObservedGeneration, newNl.GetGeneration()),
 			}
 			changelogJSON, _ := json.Marshal(changelog)
-			logger.Info("UpdateFunc for NetlinkInterface resource is called", "objectReference", klog.KObj(newNl), "Revision change log", string(changelogJSON))
+			logger.Info("UpdateFunc for OSPFProtocol resource is called", "objectReference", klog.KObj(newNl), "Revision change log", string(changelogJSON))
 
 			if !revisionChanged {
 				logger.Info("Updating OSPFProtocol due to force resync, and resourceVersion is not changed", "objectReference", klog.KObj(newNl))
 				if err := controller.updateOSPFProtocolStatus(context.Background(), newNl); err != nil {
-					logger.Error(err, "Failed to update NetlinkInterface status", "objectReference", newNl.Name, "object is enqueued, and will retry later")
+					logger.Error(err, "Failed to update OSPFProtocol status", "objectReference", newNl.Name, "object is enqueued, and will retry later")
 					// if failed to update status, simply give up rather than retry, because there's still next force-resync
 				}
 				return
@@ -422,6 +422,8 @@ func (c *Controller) updateOSPFProtocolStatus(ctx context.Context, ospfObj *netw
 	if err != nil {
 		return fmt.Errorf("failed to detect changes: %s", err.Error())
 	}
+
+	logger.Info("DetectChanges", "hasUpdates", hasUpdates)
 
 	if !hasUpdates {
 		status.ObservedGeneration = ospfObj.GetGeneration()

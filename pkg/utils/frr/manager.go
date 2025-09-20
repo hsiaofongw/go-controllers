@@ -83,10 +83,6 @@ func (m *FRROSPFManager) GetVRFInterfaceList(vrf string) (map[string]*FRROSPFIfa
 		return nil, fmt.Errorf("failed to unmarshal output: %v", err)
 	}
 
-	if vrfIfaceListobj == nil {
-		return nil, nil
-	}
-
 	res := make(map[string]*FRROSPFIface)
 	for _, ifaceList := range *vrfIfaceListobj {
 		for intfName, intfObj := range ifaceList.Interfaces {
