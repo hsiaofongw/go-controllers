@@ -1,0 +1,60 @@
+apiVersion: networking.dn42.io/v1alpha1
+kind: OSPFProtocol
+metadata:
+  # note: ospf1.yaml and ospf2.yaml use the same name but different spec.
+  name: lax1-ospf-test-cfg
+  finalizers:
+    - ospfprotocol.networking.dn42.io/finalizer
+  namespace: default
+spec:
+  node: wien1
+  driver: frr
+  version: v2
+  interfaces:
+  # vrf v1
+  - interfaceName: va
+    area: 0.0.0.0
+    networkType: point-to-point
+    vrf: v1
+  - interfaceName: d1
+    area: 0.0.0.0
+    passive: true
+    vrf: v1
+
+  # vrf v2
+  - interfaceName: vb
+    area: 0.0.0.0
+    networkType: point-to-point
+    vrf: v2
+  - interfaceName: d2
+    area: 0.0.0.0
+    passive: true
+    vrf: v2
+
+  # vrf default (aka. default vrf)
+  - interfaceName: dummy-wien1
+    area: 0.0.0.0
+    passive: true
+    vrf: default
+  - interfaceName: wg-wien1-frank1
+    area: 0.0.0.0
+    networkType: point-to-point
+    vrf: default
+  - interfaceName: wg-wien1-mnz1
+    area: 0.0.0.0
+    networkType: point-to-point
+    vrf: default
+  - interfaceName: wg-wien1-sgp1
+    area: 0.0.0.0
+    networkType: point-to-point
+    vrf: default
+  
+  routers:
+  - routerID: 0.0.0.1
+    vrf: v1
+  - routerID: 0.0.0.2
+    vrf: v2
+  - routerID: 10.3.82.1
+    vrf: default
+
+  
