@@ -184,21 +184,49 @@ func getSpec2() *networkingv1alpha1.OSPFProtocolSpec {
 	return ospfSpec
 }
 
-func getSpec(args []string) (*networkingv1alpha1.OSPFProtocolSpec, string) {
+func readSpecFromStdin() (*networkingv1alpha1.OSPFProtocolSpec, error) {
+	var ospfSpec networkingv1alpha1.OSPFProtocolSpec
+	err := yamlv3.NewDecoder(os.Stdin).Decode(&ospfSpec)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding spec from stdin: %s", err.Error())
+	}
+	return &ospfSpec, nil
+}
+
+// It selects what spec to use based on the CLI arguments,
+// If multiple arguments are given, the first one takes precedence.
+// If no effective argument is given, it will use the spec1 by default.
+// You can also pass the spec from stdin by using the --spec-from-stdin argument.
+// Example:
+// cat spec.yaml | go run main.go --spec-from-stdin
+//
+// The spec must be in YAML format, see code in networkingv1alpha1 for the spec schema.
+func getSpec(args []string) (*networkingv1alpha1.OSPFProtocolSpec, string, error) {
 	for _, arg := range args {
 		if arg == "--spec1" {
-			return getSpec1(), "spec1"
+			return getSpec1(), "spec1", nil
 		}
 		if arg == "--spec2" {
-			return getSpec2(), "spec2"
+			return getSpec2(), "spec2", nil
+		}
+		if arg == "--spec-from-stdin" {
+			specObj, err := readSpecFromStdin()
+			if err != nil {
+				return nil, "", fmt.Errorf("error reading spec from stdin: %s", err.Error())
+			}
+			return specObj, "spec-from-stdin", nil
 		}
 	}
-	return getSpec1(), "spec1"
+	return getSpec1(), "spec1", nil
 }
 
 func main() {
 
-	ospfSpec, specName := getSpec(os.Args[1:])
+	ospfSpec, specName, err := getSpec(os.Args[1:])
+	if err != nil {
+		fmt.Println("Error getting spec:", err)
+		return
+	}
 	log.Println("Using spec:", specName)
 
 	pathToVtysh := "/usr/bin/vtysh"
