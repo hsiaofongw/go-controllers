@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"os/exec"
 	"time"
 
 	kubeinformers "k8s.io/client-go/informers"
@@ -41,11 +42,28 @@ var (
 	defaultResyncPeriod int
 	nodename            string
 	namespace           string
+	pathToVtysh         string
 )
+
+func findVtyshExecutable() {
+	if pathToVtysh != "" {
+		return
+	}
+
+	if p, err := exec.LookPath("vtysh"); err == nil {
+		pathToVtysh = p
+		return
+	}
+
+	// which is a sensible guess
+	pathToVtysh = "/usr/bin/vtysh"
+}
 
 func main() {
 	klog.InitFlags(nil)
 	flag.Parse()
+
+	findVtyshExecutable()
 
 	// set up signals so we handle the shutdown signal gracefully
 	ctx := signals.SetupSignalHandler()
@@ -78,6 +96,7 @@ func main() {
 		Sampleclientset: customClient,
 		OSPFInformer:    customInformerFactory.Networking().V1alpha1().OSPFProtocols(),
 		Namespace:       namespace,
+		VtyshPath:       pathToVtysh,
 	}
 	controller := ospfctrl.NewController(ctx, controllerConfig)
 
@@ -99,4 +118,5 @@ func init() {
 	flag.IntVar(&defaultResyncPeriod, "default-resync-period", 30, "The default resync period in seconds.")
 	flag.StringVar(&nodename, "nodename", "", "The advertised nodename of this node.")
 	flag.StringVar(&namespace, "namespace", "default", "The namespace where the controller is working on.")
+	flag.StringVar(&pathToVtysh, "path-to-vtysh", "", "The path to the vtysh binary.")
 }

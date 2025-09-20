@@ -199,7 +199,9 @@ func (m *FRROSPFManager) AddInterface(intfName string, intfSpec *networkingv1alp
 	if intfSpec.Passive != nil && *intfSpec.Passive {
 		cmds = append(cmds, "ip ospf passive")
 	} else {
-		cmds = append(cmds, fmt.Sprintf("ip ospf network %s", intfSpec.NetworkType))
+		if intfSpec.NetworkType != nil {
+			cmds = append(cmds, fmt.Sprintf("ip ospf network %s", *intfSpec.NetworkType))
+		}
 	}
 
 	cmds = append(cmds, "exit")

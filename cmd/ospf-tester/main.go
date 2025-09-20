@@ -103,11 +103,12 @@ func main() {
 	routerId2 := "0.0.0.2"
 	vrf2 := "v2"
 	passive := true
+	ptpNw := networkingv1alpha1.OSPFNetworkTypePointToPoint
 
 	ifaceSpecs := []networkingv1alpha1.OSPFProtocolInterfaceSpec{
-		{InterfaceName: "va", Area: "0.0.0.0", NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
+		{InterfaceName: "va", Area: "0.0.0.0", NetworkType: &ptpNw},
 		{InterfaceName: "d1", Area: "0.0.0.0", Passive: &passive},
-		{InterfaceName: "vb", Area: "0.0.0.0", NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
+		{InterfaceName: "vb", Area: "0.0.0.0", NetworkType: &ptpNw},
 		{InterfaceName: "d2", Area: "0.0.0.0", Passive: &passive},
 	}
 

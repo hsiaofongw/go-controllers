@@ -69,7 +69,7 @@ type OSPFProtocolInterfaceSpec struct {
 	Area string `json:"area"`
 
 	// OSPF network type, it affects the way of doing neighbor discovery.
-	NetworkType OSPFNetworkType `json:"networkType"`
+	NetworkType *OSPFNetworkType `json:"networkType,omitempty"`
 
 	// Do not speak OSPF on the interface,
 	// but do advertise the interface as a stub link in the router-LSA for this router.

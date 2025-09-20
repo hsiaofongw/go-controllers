@@ -114,21 +114,23 @@ func getSpec1() *networkingv1alpha1.OSPFProtocolSpec {
 	vrfDefault := pkgutilsfrr.FRRVRFDefault
 	area0 := "0.0.0.0"
 
+	ptpNw := networkingv1alpha1.OSPFNetworkTypePointToPoint
+
 	ifaceSpecs := []networkingv1alpha1.OSPFProtocolInterfaceSpec{
 
 		// vrf v1
-		{InterfaceName: "va", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf1},
+		{InterfaceName: "va", Area: area0, NetworkType: &ptpNw, VRF: &vrf1},
 		{InterfaceName: "d1", Area: area0, Passive: &passive, VRF: &vrf1},
 
 		// vrf v2
-		{InterfaceName: "vb", Area: area0, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint, VRF: &vrf2},
+		{InterfaceName: "vb", Area: area0, NetworkType: &ptpNw, VRF: &vrf2},
 		{InterfaceName: "d2", Area: area0, Passive: &passive, VRF: &vrf2},
 
 		// vrf default
 		{InterfaceName: "dummy-wien1", Area: area0, Passive: &passive, VRF: &vrfDefault},
-		{InterfaceName: "wg-wien1-frank1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
-		{InterfaceName: "wg-wien1-mnz1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
-		{InterfaceName: "wg-wien1-sgp1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
+		{InterfaceName: "wg-wien1-frank1", Area: area0, VRF: &vrfDefault, NetworkType: &ptpNw},
+		{InterfaceName: "wg-wien1-mnz1", Area: area0, VRF: &vrfDefault, NetworkType: &ptpNw},
+		{InterfaceName: "wg-wien1-sgp1", Area: area0, VRF: &vrfDefault, NetworkType: &ptpNw},
 	}
 
 	routerSpecs := []networkingv1alpha1.OSPFProtocolRouterSpec{
@@ -160,13 +162,14 @@ func getSpec2() *networkingv1alpha1.OSPFProtocolSpec {
 	routerId3 := "10.3.82.1"
 	vrfDefault := pkgutilsfrr.FRRVRFDefault
 	area0 := "0.0.0.0"
+	ptpNw := networkingv1alpha1.OSPFNetworkTypePointToPoint
 
 	ifaceSpecs := []networkingv1alpha1.OSPFProtocolInterfaceSpec{
 		// vrf default
 		{InterfaceName: "dummy-wien1", Area: area0, Passive: &passive, VRF: &vrfDefault},
-		{InterfaceName: "wg-wien1-frank1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
-		{InterfaceName: "wg-wien1-mnz1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
-		{InterfaceName: "wg-wien1-sgp1", Area: area0, VRF: &vrfDefault, NetworkType: networkingv1alpha1.OSPFNetworkTypePointToPoint},
+		{InterfaceName: "wg-wien1-frank1", Area: area0, VRF: &vrfDefault, NetworkType: &ptpNw},
+		{InterfaceName: "wg-wien1-mnz1", Area: area0, VRF: &vrfDefault, NetworkType: &ptpNw},
+		{InterfaceName: "wg-wien1-sgp1", Area: area0, VRF: &vrfDefault, NetworkType: &ptpNw},
 	}
 
 	routerSpecs := []networkingv1alpha1.OSPFProtocolRouterSpec{

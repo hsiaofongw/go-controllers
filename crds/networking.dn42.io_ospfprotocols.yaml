@@ -80,7 +80,6 @@ spec:
                   required:
                   - area
                   - interfaceName
-                  - networkType
                   type: object
                 type: array
               node:
