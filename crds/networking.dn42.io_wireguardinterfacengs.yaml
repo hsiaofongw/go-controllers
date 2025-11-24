@@ -1,0 +1,383 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: wireguardinterfacengs.networking.dn42.io
+spec:
+  group: networking.dn42.io
+  names:
+    kind: WireGuardInterfaceNG
+    listKind: WireGuardInterfaceNGList
+    plural: wireguardinterfacengs
+    shortNames:
+    - wging
+    - wgifng
+    singular: wireguardinterfaceng
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: WireGuardInterfaceNG is a specification for a WireGuardInterfaceNG
+          resource
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: WireGuardInterfaceNGSpec is the spec for a WireGuardInterfaceNG
+              resource
+            properties:
+              addresses:
+                description: Addresses specifies the addresses that are gonna to be
+                  assigned to the interface.
+                items:
+                  properties:
+                    family:
+                      type: string
+                    local:
+                      type: string
+                    peer:
+                      type: string
+                    prefixlen:
+                      type: integer
+                  required:
+                  - family
+                  - local
+                  - peer
+                  - prefixlen
+                  type: object
+                type: array
+              container:
+                description: If set to nil, the resource would be provisioned in the
+                  host netns, and `MoveToContainer` would be ignored.
+                properties:
+                  docker:
+                    description: Name of docker container.
+                    type: string
+                  netns:
+                    description: Takes highest precedence if provided.
+                    type: string
+                  podman:
+                    description: Name of podman container.
+                    type: string
+                type: object
+              interfaceName:
+                description: Name of the interface to be created, it is required otherwise
+                  the controller would have no idea what to create.
+                type: string
+              listenPort:
+                description: |-
+                  ListenPort specifies the port that the interface would listen on.
+                  If unspecified, or specified a value of 0, the controller would try to generate one in the range of [11024, 65535].
+                type: integer
+              moveToContainer:
+                description: If true, when create, it would be first created in host
+                  netns, then moved to the container.
+                type: boolean
+              mtu:
+                description: |-
+                  MTU specifies the MTU of the interface.
+                  Under most cases, the system would automatically determine a most appropriate MTU value for you.
+                type: integer
+              node:
+                type: string
+              peers:
+                description: |-
+                  Peers specifies the other ends of the tunnel, that is where the tunnel would be connected to.
+                  However these are also not mandatory in the creation of the resource, one can completely add (or delete) peers later whenever needed.
+                items:
+                  properties:
+                    allowedIPs:
+                      items:
+                        type: string
+                      type: array
+                    endpoint:
+                      type: string
+                    persistentKeepalive:
+                      type: integer
+                    presharedKeySecretRef:
+                      properties:
+                        key:
+                          type: string
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                    publicKey:
+                      type: string
+                  required:
+                  - publicKey
+                  type: object
+                type: array
+              privateKey:
+                description: |-
+                  If PrivateKey is provided, the PrivateKeySecretRef will not be used.
+                  Note if both PrivateKey and PrivateKeySecretRef are provided, the former would take precedence.
+                  And when both are ignored, the controller would try to generate one on-the-fly and won't store the generated key to anywhere.
+                type: string
+              privateKeySecretRef:
+                description: Reference to the secret resource object where the private
+                  key is kept.
+                properties:
+                  key:
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - key
+                - name
+                type: object
+            required:
+            - addresses
+            - interfaceName
+            - moveToContainer
+            - node
+            - peers
+            type: object
+          status:
+            properties:
+              hostname:
+                description: |2-
+                   Hostname of the node where the interface is provisioned,
+                  or the hostname of the host of the container in case of containerization.
+                  This is used to identify the node where the interface is provisioned.
+                  The Hostname is not necessarily publicly reachable, since it is most likely collected from the system's hostname.
+                type: string
+              netlink:
+                description: |-
+                  Netlink status includes the most information that you can retrive from `ip link show` or `ip addr show` commands
+                  like addresses, mtu, operstate, flags, etc.
+                properties:
+                  addrs:
+                    items:
+                      properties:
+                        broadcast:
+                          type: string
+                        family:
+                          type: string
+                        flags:
+                          type: integer
+                        label:
+                          type: string
+                        linkIndex:
+                          type: integer
+                        local:
+                          type: string
+                        peer:
+                          type: string
+                        preferedLft:
+                          type: integer
+                        prefixlen:
+                          type: integer
+                        scope:
+                          type: integer
+                        validLft:
+                          type: integer
+                      type: object
+                    type: array
+                  alias:
+                    type: string
+                  altNames:
+                    items:
+                      type: string
+                    type: array
+                  flags:
+                    type: integer
+                  hardwareAddr:
+                    type: string
+                  index:
+                    type: integer
+                  masterIndex:
+                    type: integer
+                  mtu:
+                    type: integer
+                  name:
+                    type: string
+                  parentIndex:
+                    type: integer
+                  rawFlags:
+                    format: int32
+                    type: integer
+                  statistics:
+                    properties:
+                      rxBytes:
+                        format: int64
+                        type: integer
+                      rxDropped:
+                        format: int64
+                        type: integer
+                      rxErrors:
+                        format: int64
+                        type: integer
+                      rxPackets:
+                        format: int64
+                        type: integer
+                      txBytes:
+                        format: int64
+                        type: integer
+                      txErrors:
+                        format: int64
+                        type: integer
+                      txPackets:
+                        format: int64
+                        type: integer
+                    type: object
+                required:
+                - index
+                - mtu
+                - name
+                type: object
+              nodename:
+                description: |-
+                  Nodename is name of the node where the interface is provisioned.
+                  The node name can be overridden by the operator running on the node.
+                type: string
+              observedGeneration:
+                description: |-
+                  The most recent generation observed by the controller.
+                  It is the value of `.metadata.generation` observed during the generation of this status object.
+                format: int64
+                type: integer
+              wireguard:
+                description: |-
+                  WireGuard status includes the most information that you can retrieve from the `wg show` command
+                  like peer status, listen port, publickey etc..
+                properties:
+                  firewall_mark:
+                    description: |-
+                      FirewallMark is the device's current firewall mark.
+
+                      The firewall mark can be used in conjunction with firewall software to
+                      take action on outgoing WireGuard packets.
+                    type: integer
+                  listen_port:
+                    description: ListenPort is the device's network listening port.
+                    type: integer
+                  name:
+                    description: Name is the name of the device.
+                    type: string
+                  peers:
+                    description: Peers is the list of network peers associated with
+                      this device.
+                    items:
+                      description: A PeerStatus is a WireGuard peer to a Device.
+                      properties:
+                        allowed_ips:
+                          description: |-
+                            AllowedIPs specifies which IPv4 and IPv6 addresses this peer is allowed
+                            to communicate on.
+
+                            0.0.0.0/0 indicates that all IPv4 addresses are allowed, and ::/0
+                            indicates that all IPv6 addresses are allowed.
+                          items:
+                            type: string
+                          type: array
+                        endpoint:
+                          description: |-
+                            Endpoint is the most recent source address used for communication by
+                            this Peer.
+                          type: string
+                        last_handshake_time:
+                          description: |-
+                            LastHandshakeTime indicates the most recent time a handshake was performed
+                            with this peer.
+
+                            A zero-value time.Time indicates that no handshake has taken place with
+                            this peer.
+                          format: int64
+                          type: integer
+                        persistent_keepalive_interval:
+                          description: |-
+                            PersistentKeepaliveInterval specifies how often an "empty" packet is sent
+                            to a peer to keep a connection alive.
+
+                            A value of 0 indicates that persistent keepalives are disabled.
+                          format: int64
+                          type: integer
+                        preshared_key:
+                          description: |-
+                            PresharedKey is an optional preshared key which may be used as an
+                            additional layer of security for peer communications.
+
+                            A zero-value Key means no preshared key is configured.
+                          type: string
+                        protocol_version:
+                          description: |-
+                            ProtocolVersion specifies which version of the WireGuard protocol is used
+                            for this Peer.
+
+                            A value of 0 indicates that the most recent protocol version will be used.
+                          type: integer
+                        public_key:
+                          description: |-
+                            PublicKey is the public key of a peer, computed from its private key.
+
+                            PublicKey is always present in a Peer.
+                          type: string
+                        receive_bytes:
+                          description: ReceiveBytes indicates the number of bytes
+                            received from this peer.
+                          format: int64
+                          type: integer
+                        transmit_bytes:
+                          description: TransmitBytes indicates the number of bytes
+                            transmitted to this peer.
+                          format: int64
+                          type: integer
+                      type: object
+                    type: array
+                  private_key:
+                    description: PrivateKey is the device's private key.
+                    type: string
+                  public_key:
+                    description: PublicKey is the device's public key, computed from
+                      its PrivateKey.
+                    type: string
+                  type:
+                    description: Type specifies the underlying implementation of the
+                      device.
+                    type: integer
+                required:
+                - listen_port
+                - name
+                - peers
+                - private_key
+                - public_key
+                - type
+                type: object
+            required:
+            - hostname
+            - nodename
+            - observedGeneration
+            type: object
+        required:
+        - metadata
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

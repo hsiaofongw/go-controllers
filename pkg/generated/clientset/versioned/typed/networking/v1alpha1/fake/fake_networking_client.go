@@ -40,6 +40,10 @@ func (c *FakeNetworkingV1alpha1) WireGuardInterfaces(namespace string) v1alpha1.
 	return newFakeWireGuardInterfaces(c, namespace)
 }
 
+func (c *FakeNetworkingV1alpha1) WireGuardInterfaceNGs(namespace string) v1alpha1.WireGuardInterfaceNGInterface {
+	return newFakeWireGuardInterfaceNGs(c, namespace)
+}
+
 func (c *FakeNetworkingV1alpha1) WireGuardNetworkPlans(namespace string) v1alpha1.WireGuardNetworkPlanInterface {
 	return newFakeWireGuardNetworkPlans(c, namespace)
 }

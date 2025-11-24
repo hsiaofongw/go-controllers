@@ -42,6 +42,14 @@ type WireGuardInterfaceListerExpansion interface{}
 // WireGuardInterfaceNamespaceLister.
 type WireGuardInterfaceNamespaceListerExpansion interface{}
 
+// WireGuardInterfaceNGListerExpansion allows custom methods to be added to
+// WireGuardInterfaceNGLister.
+type WireGuardInterfaceNGListerExpansion interface{}
+
+// WireGuardInterfaceNGNamespaceListerExpansion allows custom methods to be added to
+// WireGuardInterfaceNGNamespaceLister.
+type WireGuardInterfaceNGNamespaceListerExpansion interface{}
+
 // WireGuardNetworkPlanListerExpansion allows custom methods to be added to
 // WireGuardNetworkPlanLister.
 type WireGuardNetworkPlanListerExpansion interface{}

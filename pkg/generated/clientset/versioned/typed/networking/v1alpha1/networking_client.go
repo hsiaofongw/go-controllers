@@ -31,6 +31,7 @@ type NetworkingV1alpha1Interface interface {
 	NetlinkInterfacesGetter
 	OSPFProtocolsGetter
 	WireGuardInterfacesGetter
+	WireGuardInterfaceNGsGetter
 	WireGuardNetworkPlansGetter
 }
 
@@ -49,6 +50,10 @@ func (c *NetworkingV1alpha1Client) OSPFProtocols(namespace string) OSPFProtocolI
 
 func (c *NetworkingV1alpha1Client) WireGuardInterfaces(namespace string) WireGuardInterfaceInterface {
 	return newWireGuardInterfaces(c, namespace)
+}
+
+func (c *NetworkingV1alpha1Client) WireGuardInterfaceNGs(namespace string) WireGuardInterfaceNGInterface {
+	return newWireGuardInterfaceNGs(c, namespace)
 }
 
 func (c *NetworkingV1alpha1Client) WireGuardNetworkPlans(namespace string) WireGuardNetworkPlanInterface {

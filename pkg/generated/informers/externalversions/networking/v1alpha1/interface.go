@@ -30,6 +30,8 @@ type Interface interface {
 	OSPFProtocols() OSPFProtocolInformer
 	// WireGuardInterfaces returns a WireGuardInterfaceInformer.
 	WireGuardInterfaces() WireGuardInterfaceInformer
+	// WireGuardInterfaceNGs returns a WireGuardInterfaceNGInformer.
+	WireGuardInterfaceNGs() WireGuardInterfaceNGInformer
 	// WireGuardNetworkPlans returns a WireGuardNetworkPlanInformer.
 	WireGuardNetworkPlans() WireGuardNetworkPlanInformer
 }
@@ -58,6 +60,11 @@ func (v *version) OSPFProtocols() OSPFProtocolInformer {
 // WireGuardInterfaces returns a WireGuardInterfaceInformer.
 func (v *version) WireGuardInterfaces() WireGuardInterfaceInformer {
 	return &wireGuardInterfaceInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// WireGuardInterfaceNGs returns a WireGuardInterfaceNGInformer.
+func (v *version) WireGuardInterfaceNGs() WireGuardInterfaceNGInformer {
+	return &wireGuardInterfaceNGInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // WireGuardNetworkPlans returns a WireGuardNetworkPlanInformer.

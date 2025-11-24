@@ -24,4 +24,6 @@ type OSPFProtocolExpansion interface{}
 
 type WireGuardInterfaceExpansion interface{}
 
+type WireGuardInterfaceNGExpansion interface{}
+
 type WireGuardNetworkPlanExpansion interface{}
