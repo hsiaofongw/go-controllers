@@ -49,6 +49,8 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
+	pkgnetapplycommon "github.com/internetworklab/netapply/pkg/interface/common"
+	pkgnetapplywg "github.com/internetworklab/netapply/pkg/interface/wireguard"
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
 	samplescheme "k8s.io/sample-controller/pkg/generated/clientset/versioned/scheme"
@@ -103,6 +105,38 @@ type ControllerConfig struct {
 	SecretsInformer secretsinformers.SecretInformer
 	DryRun          bool
 	Namespace       string
+}
+
+// should return base64 encoded standard wg key
+func getSecretObject(secRef *networkingv1alpha1.PrivateStuffRef, secLister *secretlisters.SecretLister) (string, error) {
+	// todo
+	// if get from secretRef, re-encode the result
+	// if get from string literal, use it as is.
+	return "", nil
+}
+
+func resProvisionerFromRes(res *networkingv1alpha1.WireGuardInterfaceNG, secLister *secretlisters.SecretLister) (*pkgnetapplywg.WireGuardConfig, error) {
+
+	cfg := &pkgnetapplywg.WireGuardConfig{
+		Name:       res.Spec.InterfaceName,
+		MTU:        res.Spec.MTU,
+		ListenPort: res.Spec.ListenPort,
+	}
+	if res.Spec.PrivateKey != nil {
+		sec, err := getSecretObject(res.Spec.PrivateKey, secLister)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get secret object: %s", err.Error())
+		}
+		cfg.PrivateKey = sec
+	}
+	if res.Spec.Container != nil {
+		cfg.Container = &pkgnetapplycommon.ContainerInfo{
+			Docker:    res.Spec.Container.Docker,
+			Podman:    res.Spec.Container.Podman,
+			NetnsPath: res.Spec.Container.NetNS,
+		}
+	}
+	return cfg, nil
 }
 
 // NewController returns a new WireGuardInterface controller
