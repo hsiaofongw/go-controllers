@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	pkgnetapplycommon "github.com/internetworklab/netapply/pkg/interface/common"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -91,6 +92,10 @@ type WireGuardInterfaceNGSpec struct {
 	// If set to nil, the resource would be provisioned in the host netns, and `MoveToContainer` would be ignored.
 	Container *ContainerSelector `json:"container,omitempty"`
 
+	// If set to nil, would create the interface in the default VRF.
+	// Otherwise, create the interface in the named VRF. Try not to use 'default' as the name of the VRF.
+	VRF *string `json:"vrf,omitempty"`
+
 	// Name of the interface to be created, it is required otherwise the controller would have no idea what to create.
 	InterfaceName string `json:"interfaceName"`
 
@@ -100,7 +105,7 @@ type WireGuardInterfaceNGSpec struct {
 	PrivateKey *PrivateStuffRef `json:"privateKey,omitempty"`
 
 	// Addresses specifies the addresses that are gonna to be assigned to the interface.
-	Addresses []WireGuardInterfaceNGAddressSpec `json:"addresses"`
+	Addresses []pkgnetapplycommon.AddressConfig `json:"addresses"`
 
 	// ListenPort specifies the port that the interface would listen on.
 	// If unspecified, or specified a value of 0, the controller would try to generate one in the range of [11024, 65535].
@@ -113,13 +118,6 @@ type WireGuardInterfaceNGSpec struct {
 	// Peers specifies the other ends of the tunnel, that is where the tunnel would be connected to.
 	// However these are also not mandatory in the creation of the resource, one can completely add (or delete) peers later whenever needed.
 	Peers []WireGuardPeerNGSpec `json:"peers"`
-}
-
-type WireGuardInterfaceNGAddressSpec struct {
-	Family    InetFamily `json:"family"`
-	Local     string     `json:"local"`
-	Peer      string     `json:"peer"`
-	Prefixlen int        `json:"prefixlen"`
 }
 
 type WireGuardInterfaceNGStatus struct {

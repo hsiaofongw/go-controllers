@@ -108,26 +108,46 @@ type ControllerConfig struct {
 }
 
 // should return base64 encoded standard wg key
-func getSecretObject(secRef *networkingv1alpha1.PrivateStuffRef, secLister *secretlisters.SecretLister) (string, error) {
-	// todo
-	// if get from secretRef, re-encode the result
-	// if get from string literal, use it as is.
-	return "", nil
+func getWGKey(secRef *networkingv1alpha1.PrivateStuffRef, secLister secretlisters.SecretLister) (*wgtypes.Key, error) {
+	if secRef != nil {
+		if secRef.String != nil && *secRef.String != "" {
+			keyObj, err := wgtypes.ParseKey(*secRef.String)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse private key: %s", err.Error())
+			}
+			return &keyObj, nil
+		}
+		if secRef.SecretRef != nil {
+			secData, err := doGetSecretValue(secLister, secRef.SecretRef.Namespace, secRef.SecretRef.Name, secRef.SecretRef.Key)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get secret value: %s", err.Error())
+			}
+			secDataStr := base64.StdEncoding.EncodeToString(secData)
+			keyObj, err := wgtypes.ParseKey(secDataStr)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse secret value: %s", err.Error())
+			}
+			return &keyObj, nil
+		}
+	}
+
+	return nil, nil
 }
 
-func resProvisionerFromRes(res *networkingv1alpha1.WireGuardInterfaceNG, secLister *secretlisters.SecretLister) (*pkgnetapplywg.WireGuardConfig, error) {
-
+func resProvisionerFromRes(res *networkingv1alpha1.WireGuardInterfaceNG, secLister secretlisters.SecretLister) (*pkgnetapplywg.WireGuardConfig, error) {
 	cfg := &pkgnetapplywg.WireGuardConfig{
 		Name:       res.Spec.InterfaceName,
 		MTU:        res.Spec.MTU,
 		ListenPort: res.Spec.ListenPort,
+		VRF:        res.Spec.VRF,
+		Addresses:  res.Spec.Addresses,
 	}
 	if res.Spec.PrivateKey != nil {
-		sec, err := getSecretObject(res.Spec.PrivateKey, secLister)
+		keyObj, err := getWGKey(res.Spec.PrivateKey, secLister)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get secret object: %s", err.Error())
 		}
-		cfg.PrivateKey = sec
+		cfg.PrivateKey = keyObj.String()
 	}
 	if res.Spec.Container != nil {
 		cfg.Container = &pkgnetapplycommon.ContainerInfo{
@@ -136,6 +156,7 @@ func resProvisionerFromRes(res *networkingv1alpha1.WireGuardInterfaceNG, secList
 			NetnsPath: res.Spec.Container.NetNS,
 		}
 	}
+
 	return cfg, nil
 }
 
@@ -540,18 +561,22 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	return nil
 }
 
-func (c *Controller) getSecretValue(ns *string, secName, key string) ([]byte, error) {
+func doGetSecretValue(lister secretlisters.SecretLister, ns *string, secName, key string) ([]byte, error) {
 	usedNs := "default"
 	if ns != nil && *ns != "" {
 		usedNs = *ns
 	}
 
-	secObj, err := c.secretsLister.Secrets(usedNs).Get(secName)
+	secObj, err := lister.Secrets(usedNs).Get(secName)
 	if err != nil {
 		return nil, err
 	}
 
 	return secObj.Data[key], nil
+}
+
+func (c *Controller) getSecretValue(ns *string, secName, key string) ([]byte, error) {
+	return doGetSecretValue(c.secretsLister, ns, secName, key)
 }
 
 func (c *Controller) getDockerContainerPid(containerName string) (int, error) {
