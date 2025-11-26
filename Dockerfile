@@ -30,13 +30,17 @@ COPY --from=builder-basis /go/pkg /go/pkg
 COPY --from=builder-basis /app/netapply /app/netapply
 COPY --from=builder-basis /app/go-util /app/go-util
 
+RUN \
+    go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
+
 WORKDIR /app/go-controllers
 COPY . .
 
 RUN \
-    go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest && \
     (cd /app/go-controllers/hack && ./update-codegen.sh) && \
-    (cd /app/go-controllers && ./gen-crds.sh) && \
+    (cd /app/go-controllers && ./gen-crds.sh)
+
+RUN \
     cd /app/go-controllers && \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o bin/wgng-controller ./cmd/wgng-controller
 
