@@ -14,21 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package wg
+package wgng
 
 import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"net"
-	"os"
 	"time"
 
-	dockerUtil "example.com/go-util/pkg/util/docker"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	dockerSDK "github.com/docker/docker/client"
-	"github.com/vishvananda/netlink"
 	"golang.org/x/time/rate"
 
 	corev1 "k8s.io/api/core/v1"
@@ -48,15 +43,15 @@ import (
 
 	pkgnetapplycommon "github.com/internetworklab/netapply/pkg/interface/common"
 	pkgnetapplywg "github.com/internetworklab/netapply/pkg/interface/wireguard"
+
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
 	samplescheme "k8s.io/sample-controller/pkg/generated/clientset/versioned/scheme"
 	v1alpha1Informer "k8s.io/sample-controller/pkg/generated/informers/externalversions/networking/v1alpha1"
 	v1alpha1Lister "k8s.io/sample-controller/pkg/generated/listers/networking/v1alpha1"
-	pkgreconcile "k8s.io/sample-controller/pkg/reconcile"
 )
 
-const controllerAgentName = "wg-controller"
+const controllerAgentName = "wgng-controller"
 
 const (
 	// FieldManager distinguishes this controller from other things writing to API objects
@@ -65,12 +60,12 @@ const (
 
 // Controller is the controller implementation for WireGuardInterface resources
 type Controller struct {
-	nodename     string
-	dockerClient *dockerSDK.Client
+	nodename string
 	// kubeclientset is a standard kubernetes clientset
 	kubeclientset kubernetes.Interface
-	// sampleclientset is a clientset for our own API group
-	sampleclientset clientset.Interface
+
+	// myClientset is a clientset for our own API group
+	myClientset clientset.Interface
 
 	secretsLister secretlisters.SecretLister
 	wgLister      v1alpha1Lister.WireGuardInterfaceNGLister
@@ -101,6 +96,20 @@ type ControllerConfig struct {
 	SecretsInformer secretsinformers.SecretInformer
 	DryRun          bool
 	Namespace       string
+}
+
+func doGetSecretValue(lister secretlisters.SecretLister, ns *string, secName, key string) ([]byte, error) {
+	usedNs := "default"
+	if ns != nil && *ns != "" {
+		usedNs = *ns
+	}
+
+	secObj, err := lister.Secrets(usedNs).Get(secName)
+	if err != nil {
+		return nil, err
+	}
+
+	return secObj.Data[key], nil
 }
 
 // should return base64 encoded standard wg key
@@ -209,25 +218,18 @@ func NewController(
 		&workqueue.TypedBucketRateLimiter[cache.ObjectName]{Limiter: rate.NewLimiter(rate.Limit(50), 300)},
 	)
 
-	dockerClient, err := dockerUtil.NewDefaultDockerClient()
-	if err != nil {
-		logger.Error(err, "Error creating docker client")
-		return nil
-	}
-
 	controller := &Controller{
-		nodename:        config.Nodename,
-		dockerClient:    dockerClient,
-		kubeclientset:   config.Kubeclientset,
-		sampleclientset: config.Sampleclientset,
-		wgLister:        config.WgInformer.Lister(),
-		secretsLister:   config.SecretsInformer.Lister(),
-		wgSynced:        config.WgInformer.Informer().HasSynced,
-		secretsSynced:   config.SecretsInformer.Informer().HasSynced,
-		workqueue:       workqueue.NewTypedRateLimitingQueue(ratelimiter),
-		recorder:        recorder,
-		dryRun:          config.DryRun,
-		ns:              config.Namespace,
+		nodename:      config.Nodename,
+		kubeclientset: config.Kubeclientset,
+		myClientset:   config.Sampleclientset,
+		wgLister:      config.WgInformer.Lister(),
+		secretsLister: config.SecretsInformer.Lister(),
+		wgSynced:      config.WgInformer.Informer().HasSynced,
+		secretsSynced: config.SecretsInformer.Informer().HasSynced,
+		workqueue:     workqueue.NewTypedRateLimitingQueue(ratelimiter),
+		recorder:      recorder,
+		dryRun:        config.DryRun,
+		ns:            config.Namespace,
 	}
 
 	logger.Info("Setting up event handlers")
@@ -282,17 +284,8 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	defer c.workqueue.ShutDown()
 	logger := klog.FromContext(ctx)
 
-	hostname, err := os.Hostname()
-	if err != nil {
-		logger.Error(err, "Error getting hostname")
-		return nil
-	}
-
-	// Start the informer factories to begin populating the informer caches
-	logger.Info("Starting controller", "nodename", c.nodename, "hostname", hostname)
-
 	// Wait for the caches to be synced before starting workers
-	logger.Info("Waiting for informer caches to sync")
+	logger.Info("Waiting for informer caches to sync", "nodename", c.nodename)
 
 	if ok := cache.WaitForCacheSync(ctx.Done(),
 		c.wgSynced,
@@ -404,7 +397,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 		wgObjCopy := wgObj.DeepCopy()
 		wgObjCopy.SetFinalizers([]string{})
-		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaceNGs(c.ns).Update(context.Background(), wgObjCopy, metav1.UpdateOptions{})
+		_, err = c.myClientset.NetworkingV1alpha1().WireGuardInterfaceNGs(c.ns).Update(context.Background(), wgObjCopy, metav1.UpdateOptions{})
 		if err != nil {
 			if !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("failed to clear finalizers from WireGuardInterface, will retry: %s", err.Error())
@@ -471,6 +464,7 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	prevStatus := wgObj.Status.Resource
 	if status.IsEqual(prevStatus) {
 		// well, no changes, just return
+		logger.V(4).Info("No changes, skipping status update", "interfaceName", wgObj.Spec.InterfaceName)
 		return nil
 	}
 
@@ -486,222 +480,11 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	}
 
 	// Use UpdateStatus to update only the Status block of the WireGuardInterface resource
-	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaceNGs(c.ns).UpdateStatus(ctx, wgObj, metav1.UpdateOptions{FieldManager: FieldManager})
-
+	_, err = c.myClientset.NetworkingV1alpha1().WireGuardInterfaceNGs(c.ns).UpdateStatus(ctx, wgObj, metav1.UpdateOptions{FieldManager: FieldManager})
 	if err != nil {
 		return fmt.Errorf("failed to update status: %s", err.Error())
 	}
 
 	logger.V(4).Info("Updated WireGuard interface status", "interfaceName", wgObj.Spec.InterfaceName)
 	return nil
-}
-
-func doGetSecretValue(lister secretlisters.SecretLister, ns *string, secName, key string) ([]byte, error) {
-	usedNs := "default"
-	if ns != nil && *ns != "" {
-		usedNs = *ns
-	}
-
-	secObj, err := lister.Secrets(usedNs).Get(secName)
-	if err != nil {
-		return nil, err
-	}
-
-	return secObj.Data[key], nil
-}
-
-func (c *Controller) getSecretValue(ns *string, secName, key string) ([]byte, error) {
-	return doGetSecretValue(c.secretsLister, ns, secName, key)
-}
-
-func (c *Controller) getDockerContainerPid(containerName string) (int, error) {
-	if containerName == "" {
-		return -1, fmt.Errorf("moveToContainer is true but no container name is provided")
-	}
-
-	p, err := dockerUtil.GetPidOfContainer(context.Background(), c.dockerClient, containerName)
-	if err != nil {
-		return -1, err
-	}
-
-	return p, nil
-}
-
-// if the interface should be placed in current namespace, return nil
-// use this function to determine where to look for the interface: is it in the current namespace or in a container?
-// for example, if it returns a nil, look for the interface in the current namespace
-// otherwise, look for the interface in the container specified by the pid
-func (c *Controller) getInterfacePid(wgObjSpec *networkingv1alpha1.WireGuardInterfaceSpec) (*int, error) {
-	if !wgObjSpec.MoveToContainer {
-		return nil, nil
-	}
-
-	if wgObjSpec.Container == nil {
-		return nil, fmt.Errorf("moveToContainer is true but no container is specified")
-	}
-
-	contObj := wgObjSpec.Container
-	if contObj.Docker != nil && contObj.Docker.Name != "" {
-		pid, err := c.getDockerContainerPid(contObj.Docker.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get pid of container %s: %s", contObj.Docker.Name, err.Error())
-		}
-		return &pid, nil
-	}
-
-	if contObj.NetNS != nil && contObj.NetNS.PID != nil {
-		return contObj.NetNS.PID, nil
-	}
-
-	return nil, fmt.Errorf("no container is specified")
-}
-
-func (c *Controller) toWireGuardConf(wgi *networkingv1alpha1.WireGuardInterfaceSpec) (*wgtypes.Config, error) {
-	privateKey := ""
-	if wgi.PrivateKey != "" {
-		privateKey = wgi.PrivateKey
-	} else if wgi.PrivateKeySecretRef != nil {
-		sec, err := c.getSecretValue(wgi.PrivateKeySecretRef.Namespace, wgi.PrivateKeySecretRef.Name, wgi.PrivateKeySecretRef.Key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get private key secret: %s", err.Error())
-		}
-		privateKey = base64.StdEncoding.EncodeToString(sec)
-	} else {
-		return nil, fmt.Errorf("private key is required")
-	}
-
-	privKeyObj, err := wgtypes.ParseKey(privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to obtain the private key, either not provided or invalid: %s", err.Error())
-	}
-
-	wgConf := new(wgtypes.Config)
-	if wgi.ListenPort != nil && *wgi.ListenPort != 0 {
-		wgConf.ListenPort = wgi.ListenPort
-	}
-
-	wgConf.PrivateKey = &privKeyObj
-
-	peerConfigs := make([]wgtypes.PeerConfig, 0)
-	for _, peer := range wgi.Peers {
-		peerConf, err := c.toZX2c4WGPeerConf(&peer)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert peer spec to wg peer conf: %s", err.Error())
-		}
-		peerConf.ReplaceAllowedIPs = true
-		peerConfigs = append(peerConfigs, *peerConf)
-	}
-
-	wgConf.Peers = peerConfigs
-	wgConf.ReplacePeers = true
-	return wgConf, nil
-}
-
-func (c *Controller) toZX2c4WGPeerConf(peerSpec *networkingv1alpha1.WireGuardPeerSpec) (*wgtypes.PeerConfig, error) {
-	wgPeerConf := new(wgtypes.PeerConfig)
-	if peerSpec.PublicKey == "" {
-		return nil, fmt.Errorf("public key is required")
-	}
-
-	pubkeyObj, err := wgtypes.ParseKey(peerSpec.PublicKey)
-	if err != nil {
-		return nil, fmt.Errorf("invalid peer public key: %s", err.Error())
-	}
-
-	wgPeerConf.PublicKey = pubkeyObj
-
-	if peerSpec.PresharedKeySecretRef != nil {
-
-		psk, err := c.getSecretValue(peerSpec.PresharedKeySecretRef.Namespace, peerSpec.PresharedKeySecretRef.Name, peerSpec.PresharedKeySecretRef.Key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get preshared key secret: %s", err.Error())
-		}
-		pskObj, err := wgtypes.ParseKey(base64.StdEncoding.EncodeToString(psk))
-		if err != nil {
-			return nil, fmt.Errorf("preshared provided but invalid: %s (note it is optional)", err.Error())
-		}
-		wgPeerConf.PresharedKey = &pskObj
-	}
-
-	if peerSpec.PersistentKeepalive != nil {
-		intv := time.Duration(*peerSpec.PersistentKeepalive) * time.Second
-		wgPeerConf.PersistentKeepaliveInterval = &intv
-	}
-
-	if peerSpec.Endpoint != nil && *peerSpec.Endpoint != "" {
-		peerUDPAddr, err := net.ResolveUDPAddr("udp", *peerSpec.Endpoint)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve peer endpoint %s: %s", *peerSpec.Endpoint, err.Error())
-		}
-		wgPeerConf.Endpoint = peerUDPAddr
-	}
-
-	if len(peerSpec.AllowedIPs) > 0 {
-		for _, iprange := range peerSpec.AllowedIPs {
-			_, ipNet, err := net.ParseCIDR(iprange)
-			if err != nil {
-				return nil, fmt.Errorf("invalid allowed ip cidr: %s: %s", iprange, err.Error())
-			}
-			wgPeerConf.AllowedIPs = append(wgPeerConf.AllowedIPs, *ipNet)
-		}
-	}
-
-	return wgPeerConf, nil
-}
-
-func (c *Controller) toWGDesiredConfig(wgObjSpec *networkingv1alpha1.WireGuardInterfaceSpec) (*pkgreconcile.WGDesiredState, error) {
-	desiredState := new(pkgreconcile.WGDesiredState)
-	desiredState.MTU = wgObjSpec.MTU
-	defaultMTU := 1420
-	if desiredState.MTU == nil {
-		desiredState.MTU = &defaultMTU
-	}
-	if *desiredState.MTU == 0 {
-		desiredState.MTU = &defaultMTU
-	}
-
-	netlinkIPAddrs := make([]netlink.Addr, 0)
-
-	for _, addrSpec := range wgObjSpec.Addresses {
-		addrObj, err := c.makeNetlinkAddrObject(&addrSpec)
-		if err != nil {
-			return nil, fmt.Errorf("failed to make netlink addr object: %s", err.Error())
-		}
-		netlinkIPAddrs = append(netlinkIPAddrs, *addrObj)
-	}
-
-	wgConf, err := c.toWireGuardConf(wgObjSpec)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert wireguard config: %s", err.Error())
-	}
-	desiredState.WGOuterConfig = wgConf
-	desiredState.MoveToContainer = wgObjSpec.MoveToContainer
-	desiredState.Peers = wgConf.Peers
-
-	desiredState.IPAddrs = netlinkIPAddrs
-	return desiredState, nil
-}
-
-func (c *Controller) makeNetlinkAddrObject(addrSpec *networkingv1alpha1.WireGuardInterfaceAddressSpec) (*netlink.Addr, error) {
-	family := addrSpec.Family
-	local := addrSpec.Local
-	peer := addrSpec.Peer
-	prefixlen := addrSpec.Prefixlen
-	if prefixlen == 0 {
-		return nil, fmt.Errorf("invalid prefix length: %d", prefixlen)
-	}
-
-	bits := 32
-	if family == networkingv1alpha1.InetFamilyInet6 {
-		bits = 128
-	}
-
-	addrObj := new(netlink.Addr)
-	addrObj.IPNet = new(net.IPNet)
-	addrObj.IP = net.ParseIP(local)
-	addrObj.Peer = new(net.IPNet)
-	addrObj.Peer.IP = net.ParseIP(peer)
-	addrObj.Peer.Mask = net.CIDRMask(prefixlen, bits)
-
-	return addrObj, nil
 }
