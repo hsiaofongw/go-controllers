@@ -14,11 +14,11 @@ spec:
     netns_path: /run/netns/nstest
   interfaceName: wg1
   peers:
-    - publicKey: "5Kw6/b3g6cTZ55YARJgKOffaFNME2eIj7+Ds5EAccRc="
+    - publicKey: "5vSikDIhhag80D+/IcGez86giTwnAHyEc8/TtWtJXTQ="
       allowedIPs:
         - "0.0.0.0/0"
         - "::/0"
-      endpoint: "vie1.exploro.one:22329"
+      endpoint: "vie1.exploro.one:53906"
   addresses:
     - cidr: "fe80::123/64"
 ---
@@ -37,11 +37,11 @@ spec:
     netns_path: /run/netns/nstest
   interfaceName: wg2
   peers:
-    - publicKey: "a9mmt+CKXfmHHctAatDuVm/wdCBBHPfQBdwqZjp/VXA="
+    - publicKey: "l6gkYsi+i8lOlq6+oYQylqk/iU+hyyhYHQXX63d2TjQ="
       allowedIPs:
         - "0.0.0.0/0"
         - "::/0"
-      endpoint: "vie1.exploro.one:37357"
+      endpoint: "vie1.exploro.one:43746"
   addresses:
     - cidr: "fe80::124/64"
   
