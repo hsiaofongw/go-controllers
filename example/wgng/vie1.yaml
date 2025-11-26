@@ -13,3 +13,35 @@ spec:
   container:
     netns_path: /run/netns/nstest
   interfaceName: wg1
+  peers:
+    - publicKey: "5Kw6/b3g6cTZ55YARJgKOffaFNME2eIj7+Ds5EAccRc="
+      allowedIPs:
+        - "0.0.0.0/0"
+        - "::/0"
+      endpoint: "vie1.exploro.one:22329"
+  addresses:
+    - cidr: "fe80::123/64"
+---
+apiVersion: networking.dn42.io/v1alpha1
+kind: WireGuardInterfaceNG
+metadata:
+  name: wg2
+  labels:
+    dn42.dev/asn: "4242421771"
+  finalizers:
+    - wireguardinterface.networking.dn42.io/finalizer
+  namespace: default
+spec:
+  node: vie1
+  container:
+    netns_path: /run/netns/nstest
+  interfaceName: wg2
+  peers:
+    - publicKey: "a9mmt+CKXfmHHctAatDuVm/wdCBBHPfQBdwqZjp/VXA="
+      allowedIPs:
+        - "0.0.0.0/0"
+        - "::/0"
+      endpoint: "vie1.exploro.one:37357"
+  addresses:
+    - cidr: "fe80::124/64"
+  
