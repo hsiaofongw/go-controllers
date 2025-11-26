@@ -19,7 +19,6 @@ package wg
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -31,8 +30,6 @@ import (
 	dockerSDK "github.com/docker/docker/client"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/time/rate"
-
-	pkgutils "k8s.io/sample-controller/pkg/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -76,7 +73,7 @@ type Controller struct {
 	sampleclientset clientset.Interface
 
 	secretsLister secretlisters.SecretLister
-	wgLister      v1alpha1Lister.WireGuardInterfaceLister
+	wgLister      v1alpha1Lister.WireGuardInterfaceNGLister
 
 	wgSynced      cache.InformerSynced
 	secretsSynced cache.InformerSynced
@@ -100,8 +97,7 @@ type ControllerConfig struct {
 	Nodename        string
 	Kubeclientset   kubernetes.Interface
 	Sampleclientset clientset.Interface
-	WgInformer      v1alpha1Informer.WireGuardInterfaceInformer
-	WgPlanInformer  v1alpha1Informer.WireGuardNetworkPlanInformer
+	WgInformer      v1alpha1Informer.WireGuardInterfaceNGInformer
 	SecretsInformer secretsinformers.SecretInformer
 	DryRun          bool
 	Namespace       string
@@ -134,14 +130,42 @@ func getWGKey(secRef *networkingv1alpha1.PrivateStuffRef, secLister secretlister
 	return nil, nil
 }
 
+func doConvertPeerSpec(peerSpec *networkingv1alpha1.WireGuardPeerNGSpec, lister secretlisters.SecretLister) (*pkgnetapplywg.WireGuardPeerConfig, error) {
+	pkObj, err := wgtypes.ParseKey(peerSpec.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse public key: %s", err.Error())
+	}
+	cfg := &pkgnetapplywg.WireGuardPeerConfig{}
+	cfg.PublicKey = pkObj.String()
+	if peerSpec.PresharedKeySecretRef != nil {
+		keyObj, err := getWGKey(peerSpec.PresharedKeySecretRef, lister)
+		if err != nil {
+			return nil, fmt.Errorf("preshared key is specified but failed to get preshared key secret: %s", err.Error())
+		}
+		cfg.PresharedKey = keyObj.String()
+	}
+	cfg.AllowedIPs = peerSpec.AllowedIPs
+	cfg.Endpoint = peerSpec.Endpoint
+	cfg.PersistentKeepalive = peerSpec.PersistentKeepalive
+
+	return cfg, nil
+}
+
 func resProvisionerFromRes(res *networkingv1alpha1.WireGuardInterfaceNG, secLister secretlisters.SecretLister) (*pkgnetapplywg.WireGuardConfig, error) {
 	cfg := &pkgnetapplywg.WireGuardConfig{
 		Name:       res.Spec.InterfaceName,
 		MTU:        res.Spec.MTU,
 		ListenPort: res.Spec.ListenPort,
 		VRF:        res.Spec.VRF,
-		Addresses:  res.Spec.Addresses,
 	}
+	if res.Spec.Container != nil {
+		containerInfo := pkgnetapplycommon.ContainerInfo(*res.Spec.Container)
+		cfg.Container = &containerInfo
+	}
+	for _, addr := range res.Spec.Addresses {
+		cfg.Addresses = append(cfg.Addresses, pkgnetapplycommon.AddressConfig(addr))
+	}
+
 	if res.Spec.PrivateKey != nil {
 		keyObj, err := getWGKey(res.Spec.PrivateKey, secLister)
 		if err != nil {
@@ -149,12 +173,12 @@ func resProvisionerFromRes(res *networkingv1alpha1.WireGuardInterfaceNG, secList
 		}
 		cfg.PrivateKey = keyObj.String()
 	}
-	if res.Spec.Container != nil {
-		cfg.Container = &pkgnetapplycommon.ContainerInfo{
-			Docker:    res.Spec.Container.Docker,
-			Podman:    res.Spec.Container.Podman,
-			NetnsPath: res.Spec.Container.NetNS,
+	for _, peer := range res.Spec.Peers {
+		peerConf, err := doConvertPeerSpec(&peer, secLister)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert peer spec to wg peer conf: %s", err.Error())
 		}
+		cfg.Peers = append(cfg.Peers, *peerConf)
 	}
 
 	return cfg, nil
@@ -208,73 +232,41 @@ func NewController(
 
 	logger.Info("Setting up event handlers")
 
+	handleAddOrUpdate := func(obj interface{}) {
+		newWg, _ := obj.(*networkingv1alpha1.WireGuardInterfaceNG)
+		if newWg.Spec.Node != controller.nodename {
+			// each controller only responsible for a single node
+			return
+		}
+
+		logger.Info("Updating WireGuardInterfaceNG due to creation, resourceVersion or generation changed", "objectReference", klog.KObj(newWg))
+		controller.enqueueWG(newWg)
+	}
+
 	// Set up an event handler for when WireGuardInterface resources change
 	config.WgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			objWg, ok := obj.(*networkingv1alpha1.WireGuardInterface)
-			if !ok {
-				return
-			}
-
-			if objWg.Spec.Node != controller.nodename {
-				return
-			}
-
-			revLog := pkgutils.RevChangeLog{
-				Generation:         fmt.Sprintf("%d", objWg.GetGeneration()),
-				ResourceVersion:    objWg.GetResourceVersion(),
-				ObservedGeneration: fmt.Sprintf("%d", objWg.Status.ObservedGeneration),
-			}
-
-			revLogJSON, _ := json.Marshal(revLog)
-			logger.Info("AddFunc for WireGuardInterface resource is called", "objectReference", klog.KObj(objWg), "Revision log", string(revLogJSON))
-
-			controller.enqueueWG(objWg)
-		},
+		AddFunc: handleAddOrUpdate,
 		UpdateFunc: func(old, new interface{}) {
-			oldWG, ok := old.(*networkingv1alpha1.WireGuardInterface)
+			oldWg, ok := old.(*networkingv1alpha1.WireGuardInterfaceNG)
 			if !ok {
+				// simply ignore non-relevant events
 				return
 			}
-			newWG, ok := new.(*networkingv1alpha1.WireGuardInterface)
+			newWg, ok := new.(*networkingv1alpha1.WireGuardInterfaceNG)
 			if !ok {
+				// simply ignore non-relevant events
 				return
 			}
 
-			if newWG.Spec.Node != controller.nodename {
-				// For un-managed WireGuardInterface, `spec.node` is not supported to be edited.
-				// For managed WireGuardInterface, the higher level controller will delete the
-				// object ties to the old node and create a new object ties to the new node.
-				// So, only the newWG's `spec.node` needs to be concerned.
-				return
-			}
-
-			logger.Info("UpdateFunc for WireGuardInterface resource is called", "objectReference", klog.KObj(newWG))
-
-			revisionChanged := newWG.ResourceVersion != oldWG.ResourceVersion
-			if revisionChanged {
-				logger.Info("Revision changed", "old", oldWG.ResourceVersion, "new", newWG.ResourceVersion, "objectReference", klog.KObj(newWG))
-			}
-
-			changelog := pkgutils.RevChangeLog{
-				Generation:         fmt.Sprintf("%d -> %d", oldWG.GetGeneration(), newWG.GetGeneration()),
-				ResourceVersion:    fmt.Sprintf("%s -> %s", oldWG.GetResourceVersion(), newWG.GetResourceVersion()),
-				ObservedGeneration: fmt.Sprintf("%d -> %d", oldWG.Status.ObservedGeneration, newWG.GetGeneration()),
-			}
-			changelogJSON, _ := json.Marshal(changelog)
-			logger.Info("Revision change log", string(changelogJSON))
-
-			if !revisionChanged {
-				logger.Info("Updating WireGuardInterface due to force resync", "objectReference", klog.KObj(newWG))
-				if err := controller.updateWireGuardInterfaceStatus(context.Background(), newWG); err != nil {
-					logger.Error(err, "Failed to update WireGuardInterface status", "objectReference", newWG.Name, "object is enqueued, and will retry later")
+			if (newWg.GetResourceVersion() == oldWg.GetResourceVersion()) || (newWg.GetGeneration() == oldWg.GetGeneration()) {
+				// status-only op
+				if err := controller.updateWireGuardInterfaceStatus(context.Background(), newWg, nil); err != nil {
+					logger.Error(err, "Failed to update WireGuardInterface status", "objectReference", newWg.Name)
 					// if failed to update status, simply give up rather than retry, because there's still next force-resync
 				}
 				return
 			}
-
-			logger.Info("Updating WireGuardInterface due to resourceVersion is changed", "objectReference", klog.KObj(newWG))
-			controller.enqueueWG(new)
+			handleAddOrUpdate(newWg)
 		},
 	})
 
@@ -387,7 +379,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 	logger.V(4).Info("Processing wgi object creation", "object", objectRef.Name)
 
-	wgObj, err := c.wgLister.WireGuardInterfaces(c.ns).Get(objectRef.Name)
+	wgObj, err := c.wgLister.WireGuardInterfaceNGs(c.ns).Get(objectRef.Name)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			utilruntime.HandleErrorWithContext(ctx, err, "WireGuardInterface referenced by item in work queue no longer exists", "objectReference", objectRef)
@@ -397,40 +389,22 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return err
 	}
 
-	nodeName := wgObj.Spec.Node
-	if c.nodename != nodeName {
-		logger.V(4).Info("This node is not responsible for this WireGuardInterface", "objectReference", objectRef)
-		return nil
-	}
-
-	pid, err := c.getInterfacePid(&wgObj.Spec)
+	wgProvisioner, err := resProvisionerFromRes(wgObj, c.secretsLister)
 	if err != nil {
-		return fmt.Errorf("failed to get interface pid: %s", err.Error())
+		return fmt.Errorf("failed to create wg provisioner from resource: %s", err.Error())
 	}
 
-	deletionTime := wgObj.GetDeletionTimestamp()
-	if deletionTime != nil {
-		// Clean up underlying resources, then
-		// clear all finalizers from the object
-		err := pkgutils.WithNetlinkHandle(pid, func(handle *netlink.Handle) error {
-			link, err := handle.LinkByName(wgObj.Spec.InterfaceName)
-			if err != nil {
-				if _, ok := err.(netlink.LinkNotFoundError); !ok {
-					return fmt.Errorf("failed to get link by name: %s", err.Error())
-				}
+	if wgObj.GetDeletionTimestamp() != nil {
+		// handle deletion and cleanup
 
-				return nil
-			}
-
-			return handle.LinkDel(link)
-		})
+		err := wgProvisioner.Delete(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to delete interface: %s", err.Error())
 		}
 
 		wgObjCopy := wgObj.DeepCopy()
 		wgObjCopy.SetFinalizers([]string{})
-		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces(c.ns).Update(context.Background(), wgObjCopy, metav1.UpdateOptions{})
+		_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaceNGs(c.ns).Update(context.Background(), wgObjCopy, metav1.UpdateOptions{})
 		if err != nil {
 			if !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("failed to clear finalizers from WireGuardInterface, will retry: %s", err.Error())
@@ -451,107 +425,68 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return fmt.Errorf("interface name is empty")
 	}
 
-	needReconcile := wgObj.GetGeneration() != wgObj.Status.ObservedGeneration
-	if needReconcile {
-		logger.Info("Need to reconcile", "objectReference", klog.KObj(wgObj), "observedGeneration", wgObj.Status.ObservedGeneration, "generation", wgObj.GetGeneration())
+	changeset, err := wgProvisioner.DetectChanges(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to detect changes: %s", err.Error())
+	}
 
-		reconciler, err := pkgreconcile.NewWGReconciler(wgObj.Spec.InterfaceName, pid, c.recorder)
-		if err != nil {
-			return fmt.Errorf("failed to create reconciler: %s", err.Error())
+	if changeset != nil && changeset.HasUpdates() {
+		logger.Info("Need to reconcile", "objectReference", klog.KObj(wgObj))
+		if err := changeset.Apply(ctx); err != nil {
+			return fmt.Errorf("failed to apply changes: %s", err.Error())
 		}
+	}
 
-		desiredSpec, err := c.toWGDesiredConfig(&wgObj.Spec)
-		if err != nil {
-			return fmt.Errorf("failed to convert wireguard config: %s", err.Error())
-		}
-		hasUpdates, err := reconciler.DetectChanges(ctx, desiredSpec, &wgObj.Status)
-		if err != nil {
-			return fmt.Errorf("failed to detect changes: %s", err.Error())
-		}
-		maxLoops := 10
-		for hasUpdates && maxLoops > 0 {
-
-			err = reconciler.ApplyReconcile(ctx, desiredSpec)
-			if err != nil {
-				break
-			}
-
-			reconciler.ResetState()
-			hasUpdates, err = reconciler.DetectChanges(ctx, desiredSpec, nil)
-			if err != nil {
-				break
-			}
-
-			maxLoops--
-		}
-
-		if err != nil {
-			return fmt.Errorf("failed to apply reconcile: %s", err.Error())
-		}
-		if maxLoops == 0 {
-			return fmt.Errorf("failed to apply reconcile: %s", "out of max loops")
-		}
-
-		logger.Info("Updating WireGuardInterface status", "objectReference", klog.KObj(wgObj))
-		// Update the status with current WireGuard interface information
-		err = c.updateWireGuardInterfaceStatus(ctx, wgObj)
-		if err != nil {
-			return fmt.Errorf("failed to update WireGuardInterface status: %s", err.Error())
-		}
-
+	// Update the status with current WireGuard interface information
+	err = c.updateWireGuardInterfaceStatus(ctx, wgObj, wgProvisioner)
+	if err != nil {
+		return fmt.Errorf("failed to update WireGuardInterface status: %s", err.Error())
 	}
 
 	return nil
 }
 
 // updateWireGuardInterfaceStatus updates the status of a WireGuard interface with current information
-func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *networkingv1alpha1.WireGuardInterface) error {
+func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *networkingv1alpha1.WireGuardInterfaceNG, provisioner *pkgnetapplywg.WireGuardConfig) error {
 	logger := klog.FromContext(ctx)
 
 	// NEVER modify objects from the store. It's a read-only, local cache.
 	// You can use DeepCopy() to make a deep copy of original object and modify this copy
-	wgObjCopy := wgObj.DeepCopy()
+	wgObj = wgObj.DeepCopy()
 
-	pid, err := c.getInterfacePid(&wgObj.Spec)
+	if provisioner == nil {
+		// in some calling path, the provisioner could be nil
+		v, err := resProvisionerFromRes(wgObj, c.secretsLister)
+		if err != nil {
+			return fmt.Errorf("failed to create wg provisioner from resource: %s", err.Error())
+		}
+		provisioner = v
+	}
+
+	status, err := provisioner.ToStatus(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get interface pid: %s", err.Error())
+		return fmt.Errorf("failed to convert wireguard config to status: %s", err.Error())
 	}
 
-	hostname, err := os.Hostname()
-	if err != nil {
-		return fmt.Errorf("failed to get hostname: %s", err.Error())
+	prevStatus := wgObj.Status.Resource
+	if status.IsEqual(prevStatus) {
+		// well, no changes, just return
+		return nil
 	}
 
-	status := &networkingv1alpha1.WireGuardInterfaceStatus{
-		MTU:      nil,
-		Hostname: hostname,
-		Nodename: c.nodename,
-	}
-
-	reconciler, err := pkgreconcile.NewWGReconciler(wgObjCopy.Spec.InterfaceName, pid, c.recorder)
-	if err != nil {
-		return fmt.Errorf("failed to create reconciler: %s", err.Error())
-	}
-
-	desiredSpec, err := c.toWGDesiredConfig(&wgObjCopy.Spec)
-	if err != nil {
-		return fmt.Errorf("failed to convert wireguard config: %s", err.Error())
-	}
-
-	hasUpdates, err := reconciler.DetectChanges(ctx, desiredSpec, status)
-	if err != nil {
-		return fmt.Errorf("failed to detect changes: %s", err.Error())
-	}
-
-	if !hasUpdates {
-		status.ObservedGeneration = wgObj.GetGeneration()
+	wgResStatus, ok := status.(*pkgnetapplywg.WireGuardInterfaceStatus)
+	if !ok {
+		return fmt.Errorf("failed to convert abstract interface status to concrete wireguard resource status")
 	}
 
 	// Update the status
-	wgObjCopy.Status = *status
+	wgObj.Status = networkingv1alpha1.WireGuardInterfaceNGStatus{
+		Nodename: c.nodename,
+		Resource: wgResStatus,
+	}
 
 	// Use UpdateStatus to update only the Status block of the WireGuardInterface resource
-	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaces(c.ns).UpdateStatus(ctx, wgObjCopy, metav1.UpdateOptions{FieldManager: FieldManager})
+	_, err = c.sampleclientset.NetworkingV1alpha1().WireGuardInterfaceNGs(c.ns).UpdateStatus(ctx, wgObj, metav1.UpdateOptions{FieldManager: FieldManager})
 
 	if err != nil {
 		return fmt.Errorf("failed to update status: %s", err.Error())

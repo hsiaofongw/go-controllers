@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	pkgnetapplycommon "github.com/internetworklab/netapply/pkg/interface/common"
+	pkgnetapplywg "github.com/internetworklab/netapply/pkg/interface/wireguard"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -36,6 +37,10 @@ type WireGuardInterfaceNG struct {
 	// +optional
 	Status WireGuardInterfaceNGStatus `json:"status"`
 }
+
+type ContainerInfo pkgnetapplycommon.ContainerInfo
+
+type AddressConfig pkgnetapplycommon.AddressConfig
 
 type PrivateStuffRef struct {
 	// Get the secret from string literally.
@@ -86,11 +91,8 @@ type ContainerSelector struct {
 // WireGuardInterfaceNGSpec is the spec for a WireGuardInterfaceNG resource
 type WireGuardInterfaceNGSpec struct {
 	Node string `json:"node"`
-	// If true, when create, it would be first created in host netns, then moved to the container.
-	MoveToContainer bool `json:"moveToContainer"`
-
 	// If set to nil, the resource would be provisioned in the host netns, and `MoveToContainer` would be ignored.
-	Container *ContainerSelector `json:"container,omitempty"`
+	Container *ContainerInfo `json:"container,omitempty"`
 
 	// If set to nil, would create the interface in the default VRF.
 	// Otherwise, create the interface in the named VRF. Try not to use 'default' as the name of the VRF.
@@ -105,7 +107,7 @@ type WireGuardInterfaceNGSpec struct {
 	PrivateKey *PrivateStuffRef `json:"privateKey,omitempty"`
 
 	// Addresses specifies the addresses that are gonna to be assigned to the interface.
-	Addresses []pkgnetapplycommon.AddressConfig `json:"addresses"`
+	Addresses []AddressConfig `json:"addresses"`
 
 	// ListenPort specifies the port that the interface would listen on.
 	// If unspecified, or specified a value of 0, the controller would try to generate one in the range of [11024, 65535].
@@ -121,27 +123,14 @@ type WireGuardInterfaceNGSpec struct {
 }
 
 type WireGuardInterfaceNGStatus struct {
-	//  Hostname of the node where the interface is provisioned,
-	// or the hostname of the host of the container in case of containerization.
-	// This is used to identify the node where the interface is provisioned.
-	// The Hostname is not necessarily publicly reachable, since it is most likely collected from the system's hostname.
-	Hostname string `json:"hostname"`
 
 	// Nodename is name of the node where the interface is provisioned.
 	// The node name can be overridden by the operator running on the node.
 	Nodename string `json:"nodename"`
 
-	// WireGuard status includes the most information that you can retrieve from the `wg show` command
-	// like peer status, listen port, publickey etc..
-	WireGuard *WireGuardStatusWrapper `json:"wireguard,omitempty"`
-
-	// Netlink status includes the most information that you can retrive from `ip link show` or `ip addr show` commands
-	// like addresses, mtu, operstate, flags, etc.
-	Netlink *NetlinkStatusWrapper `json:"netlink,omitempty"`
-
-	// The most recent generation observed by the controller.
-	// It is the value of `.metadata.generation` observed during the generation of this status object.
-	ObservedGeneration int64 `json:"observedGeneration"`
+	// Status of underlying resource in the node's system.
+	// +k8s:deepcopy-gen=true
+	Resource *pkgnetapplywg.WireGuardInterfaceStatus `json:"resource,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
