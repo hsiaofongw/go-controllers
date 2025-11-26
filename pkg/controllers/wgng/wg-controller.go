@@ -41,7 +41,6 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
-	pkgnetapplycommon "github.com/internetworklab/netapply/pkg/interface/common"
 	pkgnetapplywg "github.com/internetworklab/netapply/pkg/interface/wireguard"
 
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
@@ -167,10 +166,7 @@ func resProvisionerFromRes(res *networkingv1alpha1.WireGuardInterfaceNG, secList
 		ListenPort: res.Spec.ListenPort,
 		VRF:        res.Spec.VRF,
 		Container:  res.Spec.Container,
-	}
-
-	for _, addr := range res.Spec.Addresses {
-		cfg.Addresses = append(cfg.Addresses, pkgnetapplycommon.AddressConfig(addr))
+		Addresses:  res.Spec.Addresses,
 	}
 
 	if res.Spec.PrivateKey != nil {
