@@ -178,10 +178,8 @@ spec:
                   Otherwise, create the interface in the named VRF. Try not to use 'default' as the name of the VRF.
                 type: string
             required:
-            - addresses
             - interfaceName
             - node
-            - peers
             type: object
           status:
             properties:
@@ -236,9 +234,7 @@ spec:
                   public_key:
                     type: string
                 required:
-                - interface_status
                 - listen_port
-                - peers
                 - public_key
                 type: object
             required:

@@ -107,7 +107,7 @@ type WireGuardInterfaceNGSpec struct {
 	PrivateKey *PrivateStuffRef `json:"privateKey,omitempty"`
 
 	// Addresses specifies the addresses that are gonna to be assigned to the interface.
-	Addresses []AddressConfig `json:"addresses"`
+	Addresses []AddressConfig `json:"addresses,omitempty"`
 
 	// ListenPort specifies the port that the interface would listen on.
 	// If unspecified, or specified a value of 0, the controller would try to generate one in the range of [11024, 65535].
@@ -119,7 +119,7 @@ type WireGuardInterfaceNGSpec struct {
 
 	// Peers specifies the other ends of the tunnel, that is where the tunnel would be connected to.
 	// However these are also not mandatory in the creation of the resource, one can completely add (or delete) peers later whenever needed.
-	Peers []WireGuardPeerNGSpec `json:"peers"`
+	Peers []WireGuardPeerNGSpec `json:"peers,omitempty"`
 }
 
 type WireGuardInterfaceNGStatus struct {

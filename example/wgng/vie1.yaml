@@ -1,0 +1,15 @@
+---
+apiVersion: networking.dn42.io/v1alpha1
+kind: WireGuardInterfaceNG
+metadata:
+  name: wg1
+  labels:
+    dn42.dev/asn: "4242421771"
+  finalizers:
+    - wireguardinterface.networking.dn42.io/finalizer
+  namespace: default
+spec:
+  node: vie1
+  container:
+    netns_path: /run/netns/nstest
+  interfaceName: wg1

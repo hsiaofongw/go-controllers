@@ -370,7 +370,7 @@ func (c *Controller) enqueueWG(obj interface{}) {
 func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName) error {
 	logger := klog.LoggerWithValues(klog.FromContext(ctx), "objectRef", objectRef)
 
-	logger.V(4).Info("Processing wgi object creation", "object", objectRef.Name)
+	logger.V(4).Info("Processing object creation", "object", objectRef.Name)
 
 	wgObj, err := c.wgLister.WireGuardInterfaceNGs(c.ns).Get(objectRef.Name)
 	if err != nil {
@@ -418,15 +418,25 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		return fmt.Errorf("interface name is empty")
 	}
 
-	changeset, err := wgProvisioner.DetectChanges(ctx)
+	isExist, err := wgProvisioner.CheckExist(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to detect changes: %s", err.Error())
+		return fmt.Errorf("failed to check if interface exists: %s", err.Error())
 	}
-
-	if changeset != nil && changeset.HasUpdates() {
-		logger.Info("Need to reconcile", "objectReference", klog.KObj(wgObj))
-		if err := changeset.Apply(ctx); err != nil {
-			return fmt.Errorf("failed to apply changes: %s", err.Error())
+	if isExist {
+		changeset, err := wgProvisioner.DetectChanges(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to detect changes: %s", err.Error())
+		}
+	
+		if changeset != nil && changeset.HasUpdates() {
+			logger.Info("Need to reconcile", "objectReference", klog.KObj(wgObj))
+			if err := changeset.Apply(ctx); err != nil {
+				return fmt.Errorf("failed to apply changes: %s", err.Error())
+			}
+		}
+	} else {
+		if err := wgProvisioner.Create(ctx); err != nil {
+			return fmt.Errorf("failed to create interface: %s", err.Error())
 		}
 	}
 
