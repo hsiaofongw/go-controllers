@@ -38,10 +38,6 @@ type WireGuardInterfaceNG struct {
 	Status WireGuardInterfaceNGStatus `json:"status"`
 }
 
-type ContainerInfo pkgnetapplycommon.ContainerInfo
-
-type AddressConfig pkgnetapplycommon.AddressConfig
-
 type PrivateStuffRef struct {
 	// Get the secret from string literally.
 	String *string `json:"string,omitempty"`
@@ -92,7 +88,7 @@ type ContainerSelector struct {
 type WireGuardInterfaceNGSpec struct {
 	Node string `json:"node"`
 	// If set to nil, the resource would be provisioned in the host netns, and `MoveToContainer` would be ignored.
-	Container *ContainerInfo `json:"container,omitempty"`
+	Container *pkgnetapplycommon.ContainerInfo `json:"container,omitempty"`
 
 	// If set to nil, would create the interface in the default VRF.
 	// Otherwise, create the interface in the named VRF. Try not to use 'default' as the name of the VRF.
@@ -107,7 +103,7 @@ type WireGuardInterfaceNGSpec struct {
 	PrivateKey *PrivateStuffRef `json:"privateKey,omitempty"`
 
 	// Addresses specifies the addresses that are gonna to be assigned to the interface.
-	Addresses []AddressConfig `json:"addresses,omitempty"`
+	Addresses []pkgnetapplycommon.AddressConfig `json:"addresses,omitempty"`
 
 	// ListenPort specifies the port that the interface would listen on.
 	// If unspecified, or specified a value of 0, the controller would try to generate one in the range of [11024, 65535].

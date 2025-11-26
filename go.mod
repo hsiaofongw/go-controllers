@@ -97,6 +97,4 @@ require (
 
 replace example.com/go-util => ../go-util
 
-replace (
-	github.com/internetworklab/netapply => ../netapply
-)
+replace github.com/internetworklab/netapply => ../netapply

@@ -166,11 +166,9 @@ func resProvisionerFromRes(res *networkingv1alpha1.WireGuardInterfaceNG, secList
 		MTU:        res.Spec.MTU,
 		ListenPort: res.Spec.ListenPort,
 		VRF:        res.Spec.VRF,
+		Container:  res.Spec.Container,
 	}
-	if res.Spec.Container != nil {
-		containerInfo := pkgnetapplycommon.ContainerInfo(*res.Spec.Container)
-		cfg.Container = &containerInfo
-	}
+
 	for _, addr := range res.Spec.Addresses {
 		cfg.Addresses = append(cfg.Addresses, pkgnetapplycommon.AddressConfig(addr))
 	}
@@ -427,7 +425,7 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 		if err != nil {
 			return fmt.Errorf("failed to detect changes: %s", err.Error())
 		}
-	
+
 		if changeset != nil && changeset.HasUpdates() {
 			logger.Info("Need to reconcile", "objectReference", klog.KObj(wgObj))
 			if err := changeset.Apply(ctx); err != nil {

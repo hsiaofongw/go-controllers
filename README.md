@@ -46,6 +46,12 @@ Then cd into the project's directory and build:
 ```sh
 cd ~/projects/go-projects/go-controllers
 
+# also make sure that $GOPATH/bin is in the $PATH
+go install k8s.io/code-generator/cmd/deepcopy-gen@latest
+
+(cd ../netapply && git checkout dev && deepcopy-gen ./pkg/interface/wireguard)
+(cd ../netapply && git checkout dev && deepcopy-gen ./pkg/interface/common)
+
 ./build-all.sh
 
 # If there is any updates in the generated CRDs, remember to re-apply the new CRDs to the cluster
