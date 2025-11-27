@@ -7,6 +7,7 @@ docker run \
   --pull always \
   --rm \
   --pid=host \
+  --name=test-wgng-controller \
   -it \
   -v /root/.kube/config:/root/.kube/config:ro \
   -v "/var/run/docker.sock:/var/run/docker.sock:ro" \
