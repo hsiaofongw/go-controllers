@@ -14,6 +14,7 @@ RUN \
   git -C /app/netapply checkout dev && \
   cd /app/netapply && \
     deepcopy-gen ./pkg/interface/wireguard && \
+    deepcopy-gen ./pkg/bird && \
     deepcopy-gen ./pkg/interface/common
 
 WORKDIR /app/go-controllers
