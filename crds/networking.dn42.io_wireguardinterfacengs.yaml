@@ -183,6 +183,13 @@ spec:
             type: object
           status:
             properties:
+              generatedAt:
+                description: |-
+                  The UNIX timestamp when the status was generated, in unit of seconds.
+                  Use this field to determine the interval between two consecutive status generation,
+                  when it gets too quick, the controller might slow down the updating of the status.
+                format: int64
+                type: integer
               nodename:
                 description: |-
                   Nodename is name of the node where the interface is provisioned.
@@ -220,6 +227,11 @@ spec:
                           type: array
                         endpoint:
                           type: string
+                        last_handshake_at:
+                          description: Optional field, might not necessarily be present.
+                            In unit of seconds.
+                          format: int64
+                          type: integer
                         persistent_keepalive:
                           description: Seconds of PKL
                           type: integer
@@ -238,6 +250,7 @@ spec:
                 - public_key
                 type: object
             required:
+            - generatedAt
             - nodename
             type: object
         required:

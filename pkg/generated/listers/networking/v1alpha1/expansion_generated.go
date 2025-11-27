@@ -18,6 +18,14 @@ limitations under the License.
 
 package v1alpha1
 
+// BirdBGPProtocolListerExpansion allows custom methods to be added to
+// BirdBGPProtocolLister.
+type BirdBGPProtocolListerExpansion interface{}
+
+// BirdBGPProtocolNamespaceListerExpansion allows custom methods to be added to
+// BirdBGPProtocolNamespaceLister.
+type BirdBGPProtocolNamespaceListerExpansion interface{}
+
 // NetlinkInterfaceListerExpansion allows custom methods to be added to
 // NetlinkInterfaceLister.
 type NetlinkInterfaceListerExpansion interface{}

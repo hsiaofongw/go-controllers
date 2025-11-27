@@ -18,6 +18,8 @@ limitations under the License.
 
 package v1alpha1
 
+type BirdBGPProtocolExpansion interface{}
+
 type NetlinkInterfaceExpansion interface{}
 
 type OSPFProtocolExpansion interface{}

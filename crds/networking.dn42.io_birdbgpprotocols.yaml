@@ -1,0 +1,284 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: birdbgpprotocols.networking.dn42.io
+spec:
+  group: networking.dn42.io
+  names:
+    kind: BirdBGPProtocol
+    listKind: BirdBGPProtocolList
+    plural: birdbgpprotocols
+    shortNames:
+    - wging
+    - wgifng
+    singular: birdbgpprotocol
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: BirdBGPProtocol is a specification for a BirdBGPProtocol resource
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: BirdBGPProtocolSpec is the spec for a BirdBGPProtocol resource
+            properties:
+              interface:
+                type: string
+              local_address:
+                type: string
+              local_asn:
+                type: string
+              name:
+                type: string
+              node:
+                type: string
+              peer_address:
+                type: string
+              peer_asn:
+                type: string
+              peer_external:
+                type: boolean
+              peer_internal:
+                type: boolean
+              template:
+                type: string
+            required:
+            - name
+            - node
+            type: object
+          status:
+            properties:
+              generatedAt:
+                description: |-
+                  The UNIX timestamp when the status was generated, in unit of seconds.
+                  Use this field to determine the interval between two consecutive status generation,
+                  when it gets too quick, the controller might slow down the updating of the status.
+                format: int64
+                type: integer
+              nodename:
+                description: |-
+                  Nodename is name of the node where the interface is provisioned.
+                  The node name can be overridden by the operator running on the node.
+                type: string
+              resource:
+                description: Status of underlying resource in the node's system.
+                properties:
+                  current_config:
+                    description: CurrentConfig is the current configuration parsed
+                      from file in the disk.
+                    properties:
+                      deleted:
+                        description: To support soft-deletion.
+                        type: boolean
+                      interface:
+                        type: string
+                      local_address:
+                        type: string
+                      local_asn:
+                        type: string
+                      name:
+                        type: string
+                      node:
+                        description: For storing in database, distinguish which node
+                          the resource belongs to.
+                        type: string
+                      peer_address:
+                        type: string
+                      peer_asn:
+                        type: string
+                      peer_external:
+                        type: boolean
+                      peer_internal:
+                        type: boolean
+                      resource_id:
+                        description: For storing in database, the unique ID to distinguish
+                          the resource in the global scope.
+                        type: string
+                      template:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  protocol_status:
+                    description: Current Bird BGP Protocol information gathered from
+                      `birdc show protocols all <name>`
+                    properties:
+                      basics:
+                        properties:
+                          info:
+                            type: string
+                          name:
+                            type: string
+                          proto:
+                            type: string
+                          since:
+                            type: string
+                          state:
+                            type: string
+                          table:
+                            type: string
+                        required:
+                        - info
+                        - name
+                        - proto
+                        - since
+                        - state
+                        - table
+                        type: object
+                      bgp_state:
+                        type: string
+                      channels:
+                        additionalProperties:
+                          properties:
+                            bgp_next_hop:
+                              type: string
+                            input_filter:
+                              type: string
+                            name:
+                              type: string
+                            output_filter:
+                              type: string
+                            preference:
+                              type: integer
+                            route_changes_stat:
+                              properties:
+                                export_updates:
+                                  properties:
+                                    accepted:
+                                      type: integer
+                                    filtered:
+                                      type: integer
+                                    ignored:
+                                      type: integer
+                                    received:
+                                      type: integer
+                                    rejected:
+                                      type: integer
+                                  type: object
+                                export_withdraws:
+                                  properties:
+                                    accepted:
+                                      type: integer
+                                    filtered:
+                                      type: integer
+                                    ignored:
+                                      type: integer
+                                    received:
+                                      type: integer
+                                    rejected:
+                                      type: integer
+                                  type: object
+                                import_updates:
+                                  properties:
+                                    accepted:
+                                      type: integer
+                                    filtered:
+                                      type: integer
+                                    ignored:
+                                      type: integer
+                                    received:
+                                      type: integer
+                                    rejected:
+                                      type: integer
+                                  type: object
+                                import_withdraws:
+                                  properties:
+                                    accepted:
+                                      type: integer
+                                    filtered:
+                                      type: integer
+                                    ignored:
+                                      type: integer
+                                    received:
+                                      type: integer
+                                    rejected:
+                                      type: integer
+                                  type: object
+                              type: object
+                            routes_stat:
+                              properties:
+                                exported:
+                                  type: integer
+                                filtered:
+                                  type: integer
+                                imported:
+                                  type: integer
+                                preferred:
+                                  type: integer
+                              required:
+                              - exported
+                              - filtered
+                              - imported
+                              - preferred
+                              type: object
+                            state:
+                              type: string
+                          required:
+                          - input_filter
+                          - name
+                          - output_filter
+                          - state
+                          type: object
+                        type: object
+                      hold_timer:
+                        type: string
+                      keepalive_timer:
+                        type: string
+                      local_as:
+                        type: string
+                      local_capabilities:
+                        items:
+                          type: string
+                        type: array
+                      neighbor_address:
+                        type: string
+                      neighbor_as:
+                        type: string
+                      neighbor_capabilities:
+                        items:
+                          type: string
+                        type: array
+                      neighbor_id:
+                        type: string
+                      send_hold_timer:
+                        type: string
+                      session:
+                        type: string
+                      source_address:
+                        type: string
+                      vrf:
+                        type: string
+                    type: object
+                type: object
+            required:
+            - generatedAt
+            - nodename
+            type: object
+        required:
+        - metadata
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

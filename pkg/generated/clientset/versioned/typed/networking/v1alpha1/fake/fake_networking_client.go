@@ -28,6 +28,10 @@ type FakeNetworkingV1alpha1 struct {
 	*testing.Fake
 }
 
+func (c *FakeNetworkingV1alpha1) BirdBGPProtocols(namespace string) v1alpha1.BirdBGPProtocolInterface {
+	return newFakeBirdBGPProtocols(c, namespace)
+}
+
 func (c *FakeNetworkingV1alpha1) NetlinkInterfaces(namespace string) v1alpha1.NetlinkInterfaceInterface {
 	return newFakeNetlinkInterfaces(c, namespace)
 }
