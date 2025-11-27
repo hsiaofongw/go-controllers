@@ -44,6 +44,7 @@ var (
 	nodename            string
 	dryRun              bool
 	namespace           string
+	statusIntervalSecs  int
 )
 
 func main() {
@@ -93,6 +94,7 @@ func main() {
 		SecretsInformer: kubeInformerFactory.Core().V1().Secrets(),
 		DryRun:          dryRun,
 		Namespace:       namespace,
+		StatusInterval:  time.Second * time.Duration(statusIntervalSecs),
 	}
 	controller := wgng.NewController(ctx, controllerConfig)
 
@@ -117,4 +119,6 @@ func init() {
 
 	// todo: to support wildcard or multiple namespaces in the future
 	flag.StringVar(&namespace, "namespace", "default", "The namespace where the controller is working on.")
+
+	flag.IntVar(&statusIntervalSecs, "status-interval", 60, "The interval in seconds between two consecutive status updates.")
 }

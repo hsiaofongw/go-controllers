@@ -85,6 +85,8 @@ type Controller struct {
 	dryRun bool
 
 	ns string
+
+	statusInterval time.Duration
 }
 
 type ControllerConfig struct {
@@ -95,6 +97,7 @@ type ControllerConfig struct {
 	SecretsInformer secretsinformers.SecretInformer
 	DryRun          bool
 	Namespace       string
+	StatusInterval  time.Duration
 }
 
 func doGetSecretValue(lister secretlisters.SecretLister, ns *string, secName, key string) ([]byte, error) {
@@ -213,17 +216,18 @@ func NewController(
 	)
 
 	controller := &Controller{
-		nodename:      config.Nodename,
-		kubeclientset: config.Kubeclientset,
-		myClientset:   config.Sampleclientset,
-		wgLister:      config.WgInformer.Lister(),
-		secretsLister: config.SecretsInformer.Lister(),
-		wgSynced:      config.WgInformer.Informer().HasSynced,
-		secretsSynced: config.SecretsInformer.Informer().HasSynced,
-		workqueue:     workqueue.NewTypedRateLimitingQueue(ratelimiter),
-		recorder:      recorder,
-		dryRun:        config.DryRun,
-		ns:            config.Namespace,
+		nodename:       config.Nodename,
+		kubeclientset:  config.Kubeclientset,
+		myClientset:    config.Sampleclientset,
+		wgLister:       config.WgInformer.Lister(),
+		secretsLister:  config.SecretsInformer.Lister(),
+		wgSynced:       config.WgInformer.Informer().HasSynced,
+		secretsSynced:  config.SecretsInformer.Informer().HasSynced,
+		workqueue:      workqueue.NewTypedRateLimitingQueue(ratelimiter),
+		recorder:       recorder,
+		dryRun:         config.DryRun,
+		ns:             config.Namespace,
+		statusInterval: config.StatusInterval,
 	}
 
 	logger.Info("Setting up event handlers")
@@ -466,7 +470,8 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	}
 
 	prevStatus := wgObj.Status.Resource
-	if status.IsEqual(prevStatus) {
+	generatedAt := time.Unix(wgObj.Status.GeneratedAt, 0)
+	if status.IsEqual(prevStatus) && time.Since(generatedAt) < c.statusInterval {
 		// well, no changes, just return
 		logger.V(4).Info("No changes, skipping status update", "interfaceName", wgObj.Spec.InterfaceName)
 		return nil

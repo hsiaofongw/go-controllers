@@ -20,7 +20,7 @@ spec:
         - "::/0"
       endpoint: "vie1.exploro.one:53906"
   addresses:
-    - cidr: "fe80::123/64"
+    - cidr: "fe80::456/64"
 ---
 apiVersion: networking.dn42.io/v1alpha1
 kind: WireGuardInterfaceNG
@@ -43,5 +43,5 @@ spec:
         - "::/0"
       endpoint: "vie1.exploro.one:43746"
   addresses:
-    - cidr: "fe80::124/64"
+    - cidr: "fe80::789/64"
   

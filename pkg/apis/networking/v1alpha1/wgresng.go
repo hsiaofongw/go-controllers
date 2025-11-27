@@ -127,6 +127,11 @@ type WireGuardInterfaceNGStatus struct {
 	// Status of underlying resource in the node's system.
 	// +k8s:deepcopy-gen=true
 	Resource *pkgnetapplywg.WireGuardInterfaceStatus `json:"resource,omitempty"`
+
+	// The UNIX timestamp when the status was generated, in unit of seconds.
+	// Use this field to determine the interval between two consecutive status generation,
+	// when it gets too quick, the controller might slow down the updating of the status.
+	GeneratedAt int64 `json:"generatedAt"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
