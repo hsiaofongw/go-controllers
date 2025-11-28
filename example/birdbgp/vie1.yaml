@@ -2,7 +2,7 @@
 apiVersion: networking.dn42.io/v1alpha1
 kind: BirdBGPProtocol
 metadata:
-  name: bgp1
+  name: vie1-bgp1
   finalizers:
     - birdbgp.networking.dn42.io/finalizer
   namespace: default
@@ -19,7 +19,7 @@ spec:
 apiVersion: networking.dn42.io/v1alpha1
 kind: BirdBGPProtocol
 metadata:
-  name: bgp2
+  name: vie1-bgp2
   finalizers:
     - birdbgp.networking.dn42.io/finalizer
   namespace: default
@@ -36,7 +36,7 @@ spec:
 apiVersion: networking.dn42.io/v1alpha1
 kind: BirdBGPProtocol
 metadata:
-  name: bgp3
+  name: vie1-bgp3
   finalizers:
     - birdbgp.networking.dn42.io/finalizer
   namespace: default
@@ -53,7 +53,7 @@ spec:
 apiVersion: networking.dn42.io/v1alpha1
 kind: BirdBGPProtocol
 metadata:
-  name: bgp4
+  name: vie1-bgp4
   finalizers:
     - birdbgp.networking.dn42.io/finalizer
   namespace: default
@@ -70,7 +70,7 @@ spec:
 apiVersion: networking.dn42.io/v1alpha1
 kind: BirdBGPProtocol
 metadata:
-  name: bgp5
+  name: vie1-bgp5
   finalizers:
     - birdbgp.networking.dn42.io/finalizer
   namespace: default
