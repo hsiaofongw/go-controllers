@@ -56,6 +56,9 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&OSPFProtocol{},
 		&OSPFProtocolList{},
 		&WireGuardInterfaceNG{},
+		&WireGuardInterfaceNGList{},
+		&BirdBGPProtocol{},
+		&BirdBGPProtocolList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil

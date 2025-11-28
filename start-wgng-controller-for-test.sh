@@ -11,7 +11,6 @@ docker run \
   -it \
   -v /root/.kube/config:/root/.kube/config:ro \
   -v "/var/run/docker.sock:/var/run/docker.sock:ro" \
-  -v "/:/host-rootfs:ro" \
   -v /run/netns:/run/netns \
   -v $scriptDir/bin/wgng-controller:/usr/local/bin/wgng-controller \
   --privileged \

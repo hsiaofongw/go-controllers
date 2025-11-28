@@ -76,7 +76,9 @@ type Controller struct {
 
 	statusInterval time.Duration
 
-	birdClient *pkgnetapplybird.BirdClient
+	birdClient     *pkgnetapplybird.BirdClient
+	birdConfigDir  string
+	birdSocketPath string
 }
 
 type ControllerConfig struct {
@@ -110,8 +112,6 @@ func NewController(
 	config ControllerConfig,
 ) *Controller {
 	logger := klog.FromContext(ctx)
-	ctx = pkgutils.SetBirdBGPConfigDirInCtx(ctx, config.BirdConfigDir)
-	ctx = pkgutils.SetBirdControlSocketInCtx(ctx, config.BirdSocketPath)
 
 	// Create event broadcaster
 	// Add BirdBGPProtocol types to the default Kubernetes Scheme so Events can be
@@ -139,6 +139,8 @@ func NewController(
 		ns:             config.Namespace,
 		statusInterval: config.StatusInterval,
 		birdClient:     pkgnetapplybird.NewBirdClientFromSocket(config.BirdSocketPath),
+		birdConfigDir:  config.BirdConfigDir,
+		birdSocketPath: config.BirdSocketPath,
 	}
 
 	logger.Info("Setting up event handlers")
@@ -171,7 +173,9 @@ func NewController(
 
 			if (newRes.GetResourceVersion() == oldRes.GetResourceVersion()) || (newRes.GetGeneration() == oldRes.GetGeneration()) {
 				// status-only op
-				if err := controller.updateBirdBGPResStatus(context.Background(), newRes, nil); err != nil {
+				ctx = pkgutils.SetBirdBGPConfigDirInCtx(ctx, controller.birdConfigDir)
+				ctx = pkgutils.SetBirdControlSocketInCtx(ctx, controller.birdSocketPath)
+				if err := controller.updateBirdBGPResStatus(ctx, newRes, nil); err != nil {
 					logger.Error(err, "Failed to update BirdBGPProtocol status", "objectReference", newRes.Name)
 					// if failed to update status, simply give up rather than retry, because there's still next force-resync
 				}
@@ -192,6 +196,9 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	defer utilruntime.HandleCrash()
 	defer c.workqueue.ShutDown()
 	logger := klog.FromContext(ctx)
+
+	ctx = pkgutils.SetBirdBGPConfigDirInCtx(ctx, c.birdConfigDir)
+	ctx = pkgutils.SetBirdControlSocketInCtx(ctx, c.birdSocketPath)
 
 	// Wait for the caches to be synced before starting workers
 	logger.Info("Waiting for informer caches to sync", "nodename", c.nodename)

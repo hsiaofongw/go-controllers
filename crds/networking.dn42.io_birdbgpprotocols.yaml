@@ -12,8 +12,7 @@ spec:
     listKind: BirdBGPProtocolList
     plural: birdbgpprotocols
     shortNames:
-    - wging
-    - wgifng
+    - birdbgp
     singular: birdbgpprotocol
   scope: Namespaced
   versions:

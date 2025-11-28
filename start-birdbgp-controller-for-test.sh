@@ -13,10 +13,9 @@ docker run \
   --name=test-birdbgp-controller \
   -it \
   -v /root/.kube/config:/root/.kube/config:ro \
-  -v "/var/run/docker.sock:/var/run/docker.sock:ro" \
   -v "/etc/bird/ebgp_peers:/etc/bird/ebgp_peers" \
-  -v "/:/host-rootfs:ro" \
   -v $scriptDir/bin/birdbgp-controller:/usr/local/bin/birdbgp-controller \
+  -v bird-run-vol:/var/run/bird \
   --privileged \
   debian:trixie \
   birdbgp-controller \

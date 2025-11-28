@@ -1,0 +1,85 @@
+---
+apiVersion: networking.dn42.io/v1alpha1
+kind: BirdBGPProtocol
+metadata:
+  name: bgp1
+  finalizers:
+    - birdbgp.networking.dn42.io/finalizer
+  namespace: default
+spec:
+  node: vie1
+  name: bgp1
+  template: dnpeers_dualstack
+  interface: utun1
+  local_address: fe80::afaf:bfbf:cdcf:2f%utun1
+  peer_address: fe80::2923%utun1
+  local_asn: OWNAS
+  peer_asn: "4242422923"
+---
+apiVersion: networking.dn42.io/v1alpha1
+kind: BirdBGPProtocol
+metadata:
+  name: bgp2
+  finalizers:
+    - birdbgp.networking.dn42.io/finalizer
+  namespace: default
+spec:
+  node: vie1
+  name: bgp2
+  template: dnpeers_dualstack
+  interface: utun2
+  local_address: fe80::afaf:bfbf:cdcf:7%utun2
+  peer_address: fe80::ffff:2092%utun2
+  local_asn: OWNAS
+  peer_asn: "4242422092"
+---
+apiVersion: networking.dn42.io/v1alpha1
+kind: BirdBGPProtocol
+metadata:
+  name: bgp3
+  finalizers:
+    - birdbgp.networking.dn42.io/finalizer
+  namespace: default
+spec:
+  node: vie1
+  name: bgp3
+  template: dnpeers_dualstack
+  interface: utun3
+  local_address: fe80::9742:2d02:f225:e5a7%utun3
+  peer_address: fe80::1221:2:1%utun3
+  local_asn: OWNAS
+  peer_asn: "4242421221"
+---
+apiVersion: networking.dn42.io/v1alpha1
+kind: BirdBGPProtocol
+metadata:
+  name: bgp4
+  finalizers:
+    - birdbgp.networking.dn42.io/finalizer
+  namespace: default
+spec:
+  node: vie1
+  name: bgp4
+  template: dnpeers_dualstack
+  interface: utun4
+  local_address: fe80::4258:3cd4:5b39:e476%utun4
+  peer_address: fe80::1732%utun4
+  local_asn: OWNAS
+  peer_asn: "4242421732"
+---
+apiVersion: networking.dn42.io/v1alpha1
+kind: BirdBGPProtocol
+metadata:
+  name: bgp5
+  finalizers:
+    - birdbgp.networking.dn42.io/finalizer
+  namespace: default
+spec:
+  node: vie1
+  name: bgp5
+  template: dnpeers_dualstack
+  interface: utun5
+  local_address: fdda:8ca4:1556:a000:fffe:0:1:1771
+  peer_address: fd64:8964:8964::3
+  local_asn: OWNAS
+  peer_asn: "4242423264"
