@@ -21,7 +21,8 @@ const (
 	GroupName = "networking.dn42.io"
 )
 
-// Finalizer is the finalizer name used in this package
+// WGNetworkingFinalizer is the finalizer name used in this package
 const (
-	Finalizer = "wireguardinterface.networking.dn42.io/finalizer"
+	WGNetworkingFinalizer = "wireguardinterface.networking.dn42.io/finalizer"
+	BirdBGPFinalizer      = "birdbgp.networking.dn42.io/finalizer"
 )

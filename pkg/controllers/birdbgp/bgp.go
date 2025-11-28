@@ -20,22 +20,22 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	pkgnetapplybird "github.com/internetworklab/netapply/pkg/bird"
+	pkgutils "github.com/internetworklab/netapply/pkg/utils"
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	secretsinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	secretlisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
-	pkgnetapplywg "github.com/internetworklab/netapply/pkg/interface/wireguard"
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
 	samplescheme "k8s.io/sample-controller/pkg/generated/clientset/versioned/scheme"
@@ -43,14 +43,14 @@ import (
 	v1alpha1Lister "k8s.io/sample-controller/pkg/generated/listers/networking/v1alpha1"
 )
 
-const controllerAgentName = "wgng-controller"
+const controllerAgentName = "birdbgp-controller"
 
 const (
 	// FieldManager distinguishes this controller from other things writing to API objects
 	FieldManager = controllerAgentName
 )
 
-// Controller is the controller implementation for WireGuardInterface resources
+// Controller is the controller implementation for BirdBGPProtocol resources
 type Controller struct {
 	nodename string
 	// kubeclientset is a standard kubernetes clientset
@@ -59,11 +59,8 @@ type Controller struct {
 	// myClientset is a clientset for our own API group
 	myClientset clientset.Interface
 
-	secretsLister secretlisters.SecretLister
-	birdBGPLister      v1alpha1Lister.BirdBGPProtocolLister
-
-	birdBGPSynced      cache.InformerSynced
-	secretsSynced cache.InformerSynced
+	birdBGPLister v1alpha1Lister.BirdBGPProtocolLister
+	birdBGPSynced cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -75,40 +72,43 @@ type Controller struct {
 	// Kubernetes API.
 	recorder record.EventRecorder
 
-	dryRun bool
-
 	ns string
 
 	statusInterval time.Duration
+
+	birdClient *pkgnetapplybird.BirdClient
 }
 
 type ControllerConfig struct {
 	Nodename        string
 	Kubeclientset   kubernetes.Interface
 	Sampleclientset clientset.Interface
-	WgInformer      v1alpha1Informer.WireGuardInterfaceNGInformer
-	SecretsInformer secretsinformers.SecretInformer
-	DryRun          bool
+	BirdBGPInformer v1alpha1Informer.BirdBGPProtocolInformer
 	Namespace       string
 	StatusInterval  time.Duration
 	BirdSocketPath  string
+	BirdConfigDir   string
 }
 
-// NewController returns a new WireGuardInterface controller
+func provisionerFromRes(res *networkingv1alpha1.BirdBGPProtocol) (*pkgnetapplybird.BGPProtocol, error) {
+	// todo
+	return nil, nil
+}
+
+// NewController returns a new BirdBGPProtocol controller
 func NewController(
 	ctx context.Context,
 	config ControllerConfig,
 ) *Controller {
 	logger := klog.FromContext(ctx)
+	ctx = pkgutils.SetBirdBGPConfigDirInCtx(ctx, config.BirdConfigDir)
+	ctx = pkgutils.SetBirdControlSocketInCtx(ctx, config.BirdSocketPath)
 
 	// Create event broadcaster
-	// Add WireGuardInterface types to the default Kubernetes Scheme so Events can be
-	// logged for WireGuardInterface types.
+	// Add BirdBGPProtocol types to the default Kubernetes Scheme so Events can be
+	// logged for BirdBGPProtocol types.
 	utilruntime.Must(samplescheme.AddToScheme(scheme.Scheme))
 	logger.V(4).Info("Creating event broadcaster")
-	if config.DryRun {
-		logger.Info("Dry run mode is enabled, the controller won't make any actual changes to the node")
-	}
 
 	eventBroadcaster := record.NewBroadcaster(record.WithContext(ctx))
 	eventBroadcaster.StartStructuredLogging(0)
@@ -123,54 +123,52 @@ func NewController(
 		nodename:       config.Nodename,
 		kubeclientset:  config.Kubeclientset,
 		myClientset:    config.Sampleclientset,
-		wgLister:       config.WgInformer.Lister(),
-		secretsLister:  config.SecretsInformer.Lister(),
-		wgSynced:       config.WgInformer.Informer().HasSynced,
-		secretsSynced:  config.SecretsInformer.Informer().HasSynced,
+		birdBGPLister:  config.BirdBGPInformer.Lister(),
+		birdBGPSynced:  config.BirdBGPInformer.Informer().HasSynced,
 		workqueue:      workqueue.NewTypedRateLimitingQueue(ratelimiter),
 		recorder:       recorder,
-		dryRun:         config.DryRun,
 		ns:             config.Namespace,
 		statusInterval: config.StatusInterval,
+		birdClient:     pkgnetapplybird.NewBirdClientFromSocket(config.BirdSocketPath),
 	}
 
 	logger.Info("Setting up event handlers")
 
 	handleAddOrUpdate := func(obj interface{}) {
-		newWg, _ := obj.(*networkingv1alpha1.WireGuardInterfaceNG)
-		if newWg.Spec.Node != controller.nodename {
+		newRes, _ := obj.(*networkingv1alpha1.BirdBGPProtocol)
+		if newRes.Spec.Node != controller.nodename {
 			// each controller only responsible for a single node
 			return
 		}
 
-		logger.Info("Updating WireGuardInterfaceNG due to creation, resourceVersion or generation changed", "objectReference", klog.KObj(newWg))
-		controller.enqueueWG(newWg)
+		logger.Info("Updating BirdBGPProtocol due to creation, resourceVersion or generation changed", "objectReference", klog.KObj(newRes))
+		controller.enqueueBirdBGPRes(newRes)
 	}
 
-	// Set up an event handler for when WireGuardInterface resources change
-	config.WgInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	// Set up an event handler for when BirdBGPProtocol resources change
+	config.BirdBGPInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: handleAddOrUpdate,
 		UpdateFunc: func(old, new interface{}) {
-			oldWg, ok := old.(*networkingv1alpha1.WireGuardInterfaceNG)
+			oldRes, ok := old.(*networkingv1alpha1.BirdBGPProtocol)
 			if !ok {
 				// simply ignore non-relevant events
 				return
 			}
-			newWg, ok := new.(*networkingv1alpha1.WireGuardInterfaceNG)
+			newRes, ok := new.(*networkingv1alpha1.BirdBGPProtocol)
 			if !ok {
 				// simply ignore non-relevant events
 				return
 			}
 
-			if (newWg.GetResourceVersion() == oldWg.GetResourceVersion()) || (newWg.GetGeneration() == oldWg.GetGeneration()) {
+			if (newRes.GetResourceVersion() == oldRes.GetResourceVersion()) || (newRes.GetGeneration() == oldRes.GetGeneration()) {
 				// status-only op
-				if err := controller.updateWireGuardInterfaceStatus(context.Background(), newWg, nil); err != nil {
-					logger.Error(err, "Failed to update WireGuardInterface status", "objectReference", newWg.Name)
+				if err := controller.updateBirdBGPResStatus(context.Background(), newRes, nil); err != nil {
+					logger.Error(err, "Failed to update BirdBGPProtocol status", "objectReference", newRes.Name)
 					// if failed to update status, simply give up rather than retry, because there's still next force-resync
 				}
 				return
 			}
-			handleAddOrUpdate(newWg)
+			handleAddOrUpdate(newRes)
 		},
 	})
 
@@ -188,21 +186,26 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 
 	// Wait for the caches to be synced before starting workers
 	logger.Info("Waiting for informer caches to sync", "nodename", c.nodename)
-
-	if ok := cache.WaitForCacheSync(ctx.Done(),
-		c.wgSynced,
-		c.secretsSynced,
-	); !ok {
+	if ok := cache.WaitForCacheSync(ctx.Done(), c.birdBGPSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
+	logger.Info("Informer caches synced")
 
 	logger.Info("Starting workers", "count", workers)
-	// Launch two workers to process WireGuardInterface resources
+	// Launch two workers to process BirdBGPProtocol resources
 	for i := 0; i < workers; i++ {
 		go wait.UntilWithContext(ctx, c.runWorker, time.Second)
 	}
-
 	logger.Info("Started workers")
+
+	logger.Info("Connecting to bird control socket")
+	if err := c.birdClient.Connect(ctx); err != nil {
+		return fmt.Errorf("failed to connect to bird control socket: %s", err.Error())
+	}
+	logger.Info("Connected to bird control socket")
+
+	defer c.birdClient.Close()
+
 	<-ctx.Done()
 	logger.Info("Shutting down workers")
 
@@ -257,10 +260,10 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 	return true
 }
 
-// enqueueWG takes a WireGuardInterface resource and converts it into a namespace/name
+// enqueueBirdBGPRes takes a BirdBGPProtocol resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should *not* be
-// passed resources of any type other than WireGuardInterface.
-func (c *Controller) enqueueWG(obj interface{}) {
+// passed resources of any type other than BirdBGPProtocol.
+func (c *Controller) enqueueBirdBGPRes(obj interface{}) {
 	if objectRef, err := cache.ObjectToName(obj); err != nil {
 		utilruntime.HandleError(err)
 		return
@@ -274,131 +277,126 @@ func (c *Controller) syncHandler(ctx context.Context, objectRef cache.ObjectName
 
 	logger.V(4).Info("Processing object creation", "object", objectRef.Name)
 
-	wgObj, err := c.wgLister.WireGuardInterfaceNGs(c.ns).Get(objectRef.Name)
+	newRes, err := c.birdBGPLister.BirdBGPProtocols(c.ns).Get(objectRef.Name)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			utilruntime.HandleErrorWithContext(ctx, err, "WireGuardInterface referenced by item in work queue no longer exists", "objectReference", objectRef)
+			utilruntime.HandleErrorWithContext(ctx, err, "BirdBGPProtocol referenced by item in work queue no longer exists", "objectReference", objectRef)
 			return nil
 		}
 
 		return err
 	}
 
-	wgProvisioner, err := resProvisionerFromRes(wgObj, c.secretsLister)
+	provisioner, err := provisionerFromRes(newRes)
 	if err != nil {
-		return fmt.Errorf("failed to create wg provisioner from resource: %s", err.Error())
+		return fmt.Errorf("failed to create bird bgp provisioner from resource: %s", err.Error())
 	}
 
-	if wgObj.GetDeletionTimestamp() != nil {
+	if newRes.GetDeletionTimestamp() != nil {
 		// handle deletion and cleanup
 
-		err := wgProvisioner.Delete(ctx)
+		err := provisioner.Delete(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to delete interface: %s", err.Error())
 		}
 
-		wgObjCopy := wgObj.DeepCopy()
-		wgObjCopy.SetFinalizers([]string{})
-		_, err = c.myClientset.NetworkingV1alpha1().WireGuardInterfaceNGs(c.ns).Update(context.Background(), wgObjCopy, metav1.UpdateOptions{})
+		newRes := newRes.DeepCopy()
+		newRes.SetFinalizers([]string{})
+		_, err = c.myClientset.NetworkingV1alpha1().BirdBGPProtocols(c.ns).Update(context.Background(), newRes, metav1.UpdateOptions{})
 		if err != nil {
 			if !k8serrors.IsNotFound(err) {
-				return fmt.Errorf("failed to clear finalizers from WireGuardInterface, will retry: %s", err.Error())
+				return fmt.Errorf("failed to clear finalizers from BirdBGPProtocol, will retry: %s", err.Error())
 			}
 		}
 
 		return nil
 	}
 
-	if c.dryRun {
-		logger.Info("Dry run mode is enabled, skipping underlying resources manipulation")
-		return nil
-	}
-
-	if wgObj.Spec.InterfaceName == "" {
+	if newRes.Spec.Name == "" {
 		// Event recorder is useful because it enables the user to see things that happened in a central place.
-		c.recorder.Eventf(wgObj, corev1.EventTypeWarning, "InterfaceNameEmpty", "Interface name is empty")
-		return fmt.Errorf("interface name is empty")
+		c.recorder.Eventf(newRes, corev1.EventTypeWarning, "NameEmpty", "Name is empty")
+		return fmt.Errorf("resource name is empty")
 	}
 
-	isExist, err := wgProvisioner.CheckExist(ctx)
+	isExist, err := provisioner.CheckExist(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to check if interface exists: %s", err.Error())
+		return fmt.Errorf("failed to check if resource exists: %s", err.Error())
 	}
 	if isExist {
-		changeset, err := wgProvisioner.DetectChanges(ctx)
+		changeset, err := provisioner.DetectChanges(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to detect changes: %s", err.Error())
 		}
 
 		if changeset != nil && changeset.HasUpdates() {
-			logger.Info("Need to reconcile", "objectReference", klog.KObj(wgObj))
+			logger.Info("Need to reconcile", "objectReference", klog.KObj(newRes))
 			if err := changeset.Apply(ctx); err != nil {
 				return fmt.Errorf("failed to apply changes: %s", err.Error())
 			}
 		}
 	} else {
-		if err := wgProvisioner.Create(ctx); err != nil {
-			return fmt.Errorf("failed to create interface: %s", err.Error())
+		if err := provisioner.Create(ctx); err != nil {
+			return fmt.Errorf("failed to create resource: %s", err.Error())
 		}
 	}
 
-	// Update the status with current WireGuard interface information
-	err = c.updateWireGuardInterfaceStatus(ctx, wgObj, wgProvisioner)
+	// Update the status with current BirdBGPProtocol information
+	err = c.updateBirdBGPResStatus(ctx, newRes, provisioner)
 	if err != nil {
-		return fmt.Errorf("failed to update WireGuardInterface status: %s", err.Error())
+		return fmt.Errorf("failed to update BirdBGPProtocol status: %s", err.Error())
 	}
 
 	return nil
 }
 
-// updateWireGuardInterfaceStatus updates the status of a WireGuard interface with current information
-func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *networkingv1alpha1.WireGuardInterfaceNG, provisioner *pkgnetapplywg.WireGuardConfig) error {
+// updateBirdBGPResStatus updates the status of a BirdBGPProtocol with current information
+func (c *Controller) updateBirdBGPResStatus(ctx context.Context, res *networkingv1alpha1.BirdBGPProtocol, provisioner *pkgnetapplybird.BGPProtocol) error {
 	logger := klog.FromContext(ctx)
 
 	// NEVER modify objects from the store. It's a read-only, local cache.
 	// You can use DeepCopy() to make a deep copy of original object and modify this copy
-	wgObj = wgObj.DeepCopy()
+	res = res.DeepCopy()
 
 	if provisioner == nil {
 		// in some calling path, the provisioner could be nil
-		v, err := resProvisionerFromRes(wgObj, c.secretsLister)
+		v, err := provisionerFromRes(res)
 		if err != nil {
-			return fmt.Errorf("failed to create wg provisioner from resource: %s", err.Error())
+			return fmt.Errorf("failed to create birdbgp provisioner from resource: %s", err.Error())
 		}
 		provisioner = v
 	}
 
 	status, err := provisioner.ToStatus(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to convert wireguard config to status: %s", err.Error())
+		return fmt.Errorf("failed to convert birdbgp config to status: %s", err.Error())
 	}
 
-	prevStatus := wgObj.Status.Resource
-	generatedAt := time.Unix(wgObj.Status.GeneratedAt, 0)
+	prevStatus := res.Status.Resource
+	generatedAt := time.Unix(res.Status.GeneratedAt, 0)
 	if status.IsEqual(prevStatus) && time.Since(generatedAt) < c.statusInterval {
 		// well, no changes, just return
-		logger.V(4).Info("No changes, skipping status update", "interfaceName", wgObj.Spec.InterfaceName)
+		logger.V(4).Info("No changes, skipping status update", "resource name", res.Spec.Name)
 		return nil
 	}
 
-	wgResStatus, ok := status.(*pkgnetapplywg.WireGuardInterfaceStatus)
+	bgpResStatus, ok := status.(*pkgnetapplybird.BirdBGPProtocolStatus)
 	if !ok {
-		return fmt.Errorf("failed to convert abstract interface status to concrete wireguard resource status")
+		return fmt.Errorf("failed to convert abstract birdbgp resource status to concrete birdbgp resource status")
 	}
 
 	// Update the status
-	wgObj.Status = networkingv1alpha1.WireGuardInterfaceNGStatus{
+	res.Status = networkingv1alpha1.BirdBGPProtocolStatus{
 		Nodename:    c.nodename,
-		Resource:    wgResStatus,
+		Resource:    bgpResStatus,
 		GeneratedAt: time.Now().Unix(),
 	}
 
-	// Use UpdateStatus to update only the Status block of the WireGuardInterface resource
-	_, err = c.myClientset.NetworkingV1alpha1().WireGuardInterfaceNGs(c.ns).UpdateStatus(ctx, wgObj, metav1.UpdateOptions{FieldManager: FieldManager})
+	// Use UpdateStatus to update only the Status block of the BirdBGPProtocol resource
+	_, err = c.myClientset.NetworkingV1alpha1().BirdBGPProtocols(c.ns).UpdateStatus(ctx, res, metav1.UpdateOptions{FieldManager: FieldManager})
 	if err != nil {
 		return fmt.Errorf("failed to update status: %s", err.Error())
 	}
 
-	logger.V(4).Info("Updated WireGuard interface status", "interfaceName", wgObj.Spec.InterfaceName)
+	logger.V(4).Info("Updated BirdBGPProtocol status", "resource name", res.Spec.Name)
 	return nil
 }
