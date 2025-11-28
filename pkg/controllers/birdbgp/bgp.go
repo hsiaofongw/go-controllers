@@ -91,8 +91,17 @@ type ControllerConfig struct {
 }
 
 func provisionerFromRes(res *networkingv1alpha1.BirdBGPProtocol) (*pkgnetapplybird.BGPProtocol, error) {
-	// todo
-	return nil, nil
+	return &pkgnetapplybird.BGPProtocol{
+		Name:         res.Spec.Name,
+		Template:     res.Spec.Template,
+		Interface:    res.Spec.Interface,
+		LocalAddress: res.Spec.LocalAddress,
+		PeerAddress:  res.Spec.PeerAddress,
+		LocalASN:     res.Spec.LocalASN,
+		PeerASN:      res.Spec.PeerASN,
+		PeerExternal: res.Spec.PeerExternal,
+		PeerInternal: res.Spec.PeerInternal,
+	}, nil
 }
 
 // NewController returns a new BirdBGPProtocol controller
@@ -373,9 +382,9 @@ func (c *Controller) updateBirdBGPResStatus(ctx context.Context, res *networking
 
 	prevStatus := res.Status.Resource
 	generatedAt := time.Unix(res.Status.GeneratedAt, 0)
-	if status.IsEqual(prevStatus) && time.Since(generatedAt) < c.statusInterval {
-		// well, no changes, just return
-		logger.V(4).Info("No changes, skipping status update", "resource name", res.Spec.Name)
+	if status.IsEqual(prevStatus) || time.Since(generatedAt) < c.statusInterval {
+		// no changes, or changes too quickly, just return
+		logger.V(4).Info("No changes (or changes too quickly), skipping status update", "resource name", res.Spec.Name)
 		return nil
 	}
 

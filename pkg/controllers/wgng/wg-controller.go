@@ -471,9 +471,9 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 
 	prevStatus := wgObj.Status.Resource
 	generatedAt := time.Unix(wgObj.Status.GeneratedAt, 0)
-	if status.IsEqual(prevStatus) && time.Since(generatedAt) < c.statusInterval {
-		// well, no changes, just return
-		logger.V(4).Info("No changes, skipping status update", "interfaceName", wgObj.Spec.InterfaceName)
+	if status.IsEqual(prevStatus) || time.Since(generatedAt) < c.statusInterval {
+		// no changes, or changes too quickly, just return
+		logger.V(4).Info("No changes (or changes too quickly), skipping status update", "resource name", wgObj.Spec.InterfaceName)
 		return nil
 	}
 
