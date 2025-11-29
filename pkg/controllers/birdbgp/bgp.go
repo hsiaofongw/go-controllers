@@ -170,6 +170,10 @@ func NewController(
 				// simply ignore non-relevant events
 				return
 			}
+			if newRes.Spec.Node != controller.nodename {
+				// each controller only responsible for a single node
+				return
+			}
 
 			if (newRes.GetResourceVersion() == oldRes.GetResourceVersion()) || (newRes.GetGeneration() == oldRes.GetGeneration()) {
 				// status-only op
