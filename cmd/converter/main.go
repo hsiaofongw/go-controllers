@@ -6,7 +6,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 
+	pkgnetapplywg "github.com/internetworklab/netapply/pkg/interface/wireguard"
 	pkgnetapplymdls "github.com/internetworklab/netapply/pkg/models"
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +29,19 @@ var (
 
 func init() {
 	flag.Parse()
+}
+
+func parseIdx(resName string) int {
+	if matches := regexp.MustCompile(`\w+(\d+)`).FindStringSubmatch(resName); matches != nil {
+		if len(matches) > 1 {
+			x, err := strconv.Atoi(matches[1])
+			if err != nil {
+				return -1
+			}
+			return x
+		}
+	}
+	return -1
 }
 
 func main() {
@@ -54,58 +70,12 @@ func main() {
 		return
 	}
 
-	if nodeConfig.Resources.BirdBGP != nil {
-		log.Println("Start converting bird bgp resources to resource files")
-		for _, bgpCfg := range nodeConfig.Resources.BirdBGP.EBGPProtocols {
-			resName := fmt.Sprintf("%s-%s", *nodeName, bgpCfg.Name)
-			filebasename := resName + ".yaml"
-			birdBGPRes := v1alpha1.BirdBGPProtocol{
-				TypeMeta: v1.TypeMeta{
-					Kind:       "BirdBGPProtocol",
-					APIVersion: "networking.dn42.io/v1alpha1",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      resName,
-					Namespace: *namespace,
-					Finalizers: []string{
-						v1alpha1networking.BirdBGPFinalizer,
-					},
-				},
-				Spec: v1alpha1.BirdBGPProtocolSpec{
-					Node:         *nodeName,
-					Name:         bgpCfg.Name,
-					Template:     bgpCfg.Template,
-					Interface:    bgpCfg.Interface,
-					LocalAddress: bgpCfg.LocalAddress,
-					PeerAddress:  bgpCfg.PeerAddress,
-					LocalASN:     bgpCfg.LocalASN,
-					PeerASN:      bgpCfg.PeerASN,
-					PeerExternal: bgpCfg.PeerExternal,
-					PeerInternal: bgpCfg.PeerInternal,
-				},
-			}
-			fullpath := filepath.Join(*birdBGPResourceDir, filebasename)
-			func() {
-				outf, err := os.Create(fullpath)
-				if err != nil {
-					log.Fatalf("failed to create bird bgp resource file: %v", err)
-				}
-				defer outf.Close()
-				log.Printf("Writing bird bgp resource to %s", fullpath)
-				serializer := k8sJson.NewSerializerWithOptions(
-					k8sJson.DefaultMetaFactory, nil, nil,
-					k8sJson.SerializerOptions{Yaml: true, Pretty: true, Strict: true},
-				)
-				if err := serializer.Encode(&birdBGPRes, outf); err != nil {
-					log.Fatalf("failed to encode bird bgp resource: %v", err)
-				}
-			}()
-		}
-	}
+	wgMap := make(map[string]pkgnetapplywg.WireGuardConfig)
 
 	if nodeConfig.Resources.WireGuard != nil {
 		log.Println("Start converting wireguard resources to resource files")
 		for _, wgCfg := range nodeConfig.Resources.WireGuard.WireGuardConfigs {
+			wgMap[wgCfg.Name] = wgCfg
 			resName := fmt.Sprintf("%s-%s", *nodeName, wgCfg.Name)
 			filebasename := resName + ".yaml"
 			wireguardRes := v1alpha1.WireGuardInterfaceNG{
@@ -119,6 +89,7 @@ func main() {
 					Finalizers: []string{
 						v1alpha1networking.WGNetworkingFinalizer,
 					},
+					Labels: wgCfg.Additionals,
 				},
 				Spec: v1alpha1.WireGuardInterfaceNGSpec{
 					Node:          *nodeName,
@@ -167,4 +138,67 @@ func main() {
 			}()
 		}
 	}
+
+	if nodeConfig.Resources.BirdBGP != nil {
+		log.Println("Start converting bird bgp resources to resource files")
+		for _, bgpCfg := range nodeConfig.Resources.BirdBGP.EBGPProtocols {
+			resName := fmt.Sprintf("%s-%s", *nodeName, bgpCfg.Name)
+			filebasename := resName + ".yaml"
+			birdBGPRes := v1alpha1.BirdBGPProtocol{
+				TypeMeta: v1.TypeMeta{
+					Kind:       "BirdBGPProtocol",
+					APIVersion: "networking.dn42.io/v1alpha1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resName,
+					Namespace: *namespace,
+					Finalizers: []string{
+						v1alpha1networking.BirdBGPFinalizer,
+					},
+				},
+				Spec: v1alpha1.BirdBGPProtocolSpec{
+					Node:         *nodeName,
+					Name:         bgpCfg.Name,
+					Template:     bgpCfg.Template,
+					Interface:    bgpCfg.Interface,
+					LocalAddress: bgpCfg.LocalAddress,
+					PeerAddress:  bgpCfg.PeerAddress,
+					LocalASN:     bgpCfg.LocalASN,
+					PeerASN:      bgpCfg.PeerASN,
+					PeerExternal: bgpCfg.PeerExternal,
+					PeerInternal: bgpCfg.PeerInternal,
+				},
+			}
+
+			if bgpCfg.Interface != nil && *bgpCfg.Interface != "" {
+				if wgCfg, ok := wgMap[*bgpCfg.Interface]; ok {
+					if wgCfg.Additionals != nil {
+						if peerASN, ok := wgCfg.Additionals[pkgnetapplywg.WGAdditionalKeyASN]; ok {
+							birdBGPRes.ObjectMeta.Labels = map[string]string{
+								"networking.dn42.io/peer-asn": peerASN,
+							}
+						}
+					}
+				}
+			}
+
+			fullpath := filepath.Join(*birdBGPResourceDir, filebasename)
+			func() {
+				outf, err := os.Create(fullpath)
+				if err != nil {
+					log.Fatalf("failed to create bird bgp resource file: %v", err)
+				}
+				defer outf.Close()
+				log.Printf("Writing bird bgp resource to %s", fullpath)
+				serializer := k8sJson.NewSerializerWithOptions(
+					k8sJson.DefaultMetaFactory, nil, nil,
+					k8sJson.SerializerOptions{Yaml: true, Pretty: true, Strict: true},
+				)
+				if err := serializer.Encode(&birdBGPRes, outf); err != nil {
+					log.Fatalf("failed to encode bird bgp resource: %v", err)
+				}
+			}()
+		}
+	}
+
 }
