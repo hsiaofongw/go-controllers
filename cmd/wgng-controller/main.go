@@ -30,7 +30,6 @@ import (
 	// _ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 
 	dockerUtil "example.com/go-util/pkg/util/docker"
-	pkgnetapplyutils "github.com/internetworklab/netapply/pkg/utils"
 	wgng "k8s.io/sample-controller/pkg/controllers/wgng"
 	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
 	informers "k8s.io/sample-controller/pkg/generated/informers/externalversions"
@@ -61,7 +60,7 @@ func main() {
 		logger.Error(err, "Error creating docker client")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
-	ctx = pkgnetapplyutils.SetDockerCliInCtx(ctx, dockerClient)
+
 	// later, if we want it to support other container runtimes as well, also remember to add
 	// the sdk clients of other container runtimes here.
 
@@ -95,6 +94,7 @@ func main() {
 		DryRun:          dryRun,
 		Namespace:       namespace,
 		StatusInterval:  time.Second * time.Duration(statusIntervalSecs),
+		DockerClient:    dockerClient,
 	}
 	controller := wgng.NewController(ctx, controllerConfig)
 

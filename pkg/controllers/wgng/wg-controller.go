@@ -43,6 +43,8 @@ import (
 
 	pkgnetapplywg "github.com/internetworklab/netapply/pkg/interface/wireguard"
 
+	dockerclient "github.com/docker/docker/client"
+	pkgnetapplyutils "github.com/internetworklab/netapply/pkg/utils"
 	networkingv1alpha1 "k8s.io/sample-controller/pkg/apis/networking/v1alpha1"
 	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
 	samplescheme "k8s.io/sample-controller/pkg/generated/clientset/versioned/scheme"
@@ -87,6 +89,8 @@ type Controller struct {
 	ns string
 
 	statusInterval time.Duration
+
+	dockerClient *dockerclient.Client
 }
 
 type ControllerConfig struct {
@@ -98,6 +102,7 @@ type ControllerConfig struct {
 	DryRun          bool
 	Namespace       string
 	StatusInterval  time.Duration
+	DockerClient    *dockerclient.Client
 }
 
 func doGetSecretValue(lister secretlisters.SecretLister, ns *string, secName, key string) ([]byte, error) {
@@ -228,6 +233,7 @@ func NewController(
 		dryRun:         config.DryRun,
 		ns:             config.Namespace,
 		statusInterval: config.StatusInterval,
+		dockerClient:   config.DockerClient,
 	}
 
 	logger.Info("Setting up event handlers")
@@ -264,7 +270,8 @@ func NewController(
 
 			if (newWg.GetResourceVersion() == oldWg.GetResourceVersion()) || (newWg.GetGeneration() == oldWg.GetGeneration()) {
 				// status-only op
-				if err := controller.updateWireGuardInterfaceStatus(context.Background(), newWg, nil); err != nil {
+				ctx = pkgnetapplyutils.SetDockerCliInCtx(context.Background(), controller.dockerClient)
+				if err := controller.updateWireGuardInterfaceStatus(ctx, newWg, nil); err != nil {
 					logger.Error(err, "Failed to update WireGuardInterface status", "objectReference", newWg.Name)
 					// if failed to update status, simply give up rather than retry, because there's still next force-resync
 				}
@@ -285,6 +292,7 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	defer utilruntime.HandleCrash()
 	defer c.workqueue.ShutDown()
 	logger := klog.FromContext(ctx)
+	ctx = pkgnetapplyutils.SetDockerCliInCtx(ctx, c.dockerClient)
 
 	// Wait for the caches to be synced before starting workers
 	logger.Info("Waiting for informer caches to sync", "nodename", c.nodename)
