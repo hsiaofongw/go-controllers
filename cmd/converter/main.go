@@ -29,6 +29,7 @@ func init() {
 }
 
 const labelKeyPeerASN = "networking.dn42.io/peer-asn"
+const labelKeyNode = "networking.dn42.io/node"
 
 func main() {
 	if *resourceFile == "" || *birdBGPResourceDir == "" || *wgResourceDir == "" || *nodeName == "" || *namespace == "" {
@@ -94,6 +95,10 @@ func main() {
 					}
 				}
 			}
+			if wireguardRes.ObjectMeta.Labels == nil {
+				wireguardRes.ObjectMeta.Labels = make(map[string]string)
+			}
+			wireguardRes.ObjectMeta.Labels[labelKeyNode] = *nodeName
 			if wgCfg.PrivateKey != "" {
 				wireguardRes.Spec.PrivateKey = &v1alpha1.PrivateStuffRef{
 					String: &wgCfg.PrivateKey,
@@ -174,6 +179,11 @@ func main() {
 					}
 				}
 			}
+
+			if birdBGPRes.ObjectMeta.Labels == nil {
+				birdBGPRes.ObjectMeta.Labels = make(map[string]string)
+			}
+			birdBGPRes.ObjectMeta.Labels[labelKeyNode] = *nodeName
 
 			fullpath := filepath.Join(*birdBGPResourceDir, filebasename)
 			func() {
