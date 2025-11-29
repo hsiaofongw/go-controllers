@@ -468,20 +468,22 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 		provisioner = v
 	}
 
-	status, err := provisioner.ToStatus(ctx)
+	latestResStatus, err := provisioner.ToStatus(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to convert wireguard config to status: %s", err.Error())
 	}
 
-	prevStatus := wgObj.Status.Resource
-	generatedAt := time.Unix(wgObj.Status.GeneratedAt, 0)
-	if status.IsEqual(prevStatus) || time.Since(generatedAt) < c.statusInterval {
+	var prevResStatus *pkgnetapplywg.WireGuardInterfaceStatus
+	if wgObj.Status != nil {
+		prevResStatus = wgObj.Status.Resource
+	}
+	if latestResStatus.IsEqual(prevResStatus) || (wgObj.Status != nil && time.Since(time.Unix(wgObj.Status.GeneratedAt, 0)) < c.statusInterval) {
 		// no changes, or changes too quickly, just return
 		logger.V(4).Info("No changes (or changes too quickly), skipping status update", "resource name", wgObj.Spec.InterfaceName)
 		return nil
 	}
 
-	wgResStatus, ok := status.(*pkgnetapplywg.WireGuardInterfaceStatus)
+	wgResStatus, ok := latestResStatus.(*pkgnetapplywg.WireGuardInterfaceStatus)
 	if !ok {
 		return fmt.Errorf("failed to convert abstract interface status to concrete wireguard resource status")
 	}

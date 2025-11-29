@@ -386,20 +386,23 @@ func (c *Controller) updateBirdBGPResStatus(ctx context.Context, res *networking
 		provisioner = v
 	}
 
-	status, err := provisioner.ToStatus(ctx)
+	latestResStatus, err := provisioner.ToStatus(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to convert birdbgp config to status: %s", err.Error())
 	}
 
-	prevStatus := res.Status.Resource
-	generatedAt := time.Unix(res.Status.GeneratedAt, 0)
-	if status.IsEqual(prevStatus) || time.Since(generatedAt) < c.statusInterval {
+	var prevResStatus *pkgnetapplybird.BirdBGPProtocolStatus
+	if res.Status != nil {
+		prevResStatus = res.Status.Resource
+	}
+
+	if latestResStatus.IsEqual(prevResStatus) || (res.Status != nil && time.Since(time.Unix(res.Status.GeneratedAt, 0)) < c.statusInterval) {
 		// no changes, or changes too quickly, just return
 		logger.V(4).Info("No changes (or changes too quickly), skipping status update", "resource name", res.Spec.Name)
 		return nil
 	}
 
-	bgpResStatus, ok := status.(*pkgnetapplybird.BirdBGPProtocolStatus)
+	bgpResStatus, ok := latestResStatus.(*pkgnetapplybird.BirdBGPProtocolStatus)
 	if !ok {
 		return fmt.Errorf("failed to convert abstract birdbgp resource status to concrete birdbgp resource status")
 	}
