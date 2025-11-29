@@ -6,13 +6,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 
 	pkgnetapplywg "github.com/internetworklab/netapply/pkg/interface/wireguard"
 	pkgnetapplymdls "github.com/internetworklab/netapply/pkg/models"
 	"gopkg.in/yaml.v3"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sJson "k8s.io/apimachinery/pkg/runtime/serializer/json"
 	v1alpha1networking "k8s.io/sample-controller/pkg/apis/networking"
@@ -31,18 +28,7 @@ func init() {
 	flag.Parse()
 }
 
-func parseIdx(resName string) int {
-	if matches := regexp.MustCompile(`\w+(\d+)`).FindStringSubmatch(resName); matches != nil {
-		if len(matches) > 1 {
-			x, err := strconv.Atoi(matches[1])
-			if err != nil {
-				return -1
-			}
-			return x
-		}
-	}
-	return -1
-}
+const labelKeyPeerASN = "networking.dn42.io/peer-asn"
 
 func main() {
 	if *resourceFile == "" || *birdBGPResourceDir == "" || *wgResourceDir == "" || *nodeName == "" || *namespace == "" {
@@ -89,7 +75,7 @@ func main() {
 					Finalizers: []string{
 						v1alpha1networking.WGNetworkingFinalizer,
 					},
-					Labels: wgCfg.Additionals,
+					Annotations: wgCfg.Additionals,
 				},
 				Spec: v1alpha1.WireGuardInterfaceNGSpec{
 					Node:          *nodeName,
@@ -100,6 +86,13 @@ func main() {
 					ListenPort:    wgCfg.ListenPort,
 					MTU:           wgCfg.MTU,
 				},
+			}
+			if wgCfg.Additionals != nil {
+				if asn, ok := wgCfg.Additionals[pkgnetapplywg.WGAdditionalKeyASN]; ok {
+					wireguardRes.ObjectMeta.Labels = map[string]string{
+						labelKeyPeerASN: asn,
+					}
+				}
 			}
 			if wgCfg.PrivateKey != "" {
 				wireguardRes.Spec.PrivateKey = &v1alpha1.PrivateStuffRef{
@@ -149,7 +142,7 @@ func main() {
 					Kind:       "BirdBGPProtocol",
 					APIVersion: "networking.dn42.io/v1alpha1",
 				},
-				ObjectMeta: metav1.ObjectMeta{
+				ObjectMeta: v1.ObjectMeta{
 					Name:      resName,
 					Namespace: *namespace,
 					Finalizers: []string{
@@ -175,7 +168,7 @@ func main() {
 					if wgCfg.Additionals != nil {
 						if peerASN, ok := wgCfg.Additionals[pkgnetapplywg.WGAdditionalKeyASN]; ok {
 							birdBGPRes.ObjectMeta.Labels = map[string]string{
-								"networking.dn42.io/peer-asn": peerASN,
+								labelKeyPeerASN: peerASN,
 							}
 						}
 					}
