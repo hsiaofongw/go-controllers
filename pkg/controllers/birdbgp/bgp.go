@@ -401,7 +401,7 @@ func (c *Controller) updateBirdBGPResStatus(ctx context.Context, res *networking
 	}
 
 	// Update the status
-	res.Status = networkingv1alpha1.BirdBGPProtocolStatus{
+	res.Status = &networkingv1alpha1.BirdBGPProtocolStatus{
 		Nodename:    c.nodename,
 		Resource:    bgpResStatus,
 		GeneratedAt: time.Now().Unix(),

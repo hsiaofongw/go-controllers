@@ -35,9 +35,10 @@ RUN \
 
 RUN \
     cd /app/go-controllers && \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o bin/wgng-controller ./cmd/wgng-controller
-
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o bin/wgng-controller ./cmd/wgng-controller && \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o bin/birdbgp-controller ./cmd/birdbgp-controller
 
 FROM debian:trixie
 
 COPY --from=builder /app/go-controllers/bin/wgng-controller /usr/local/bin/wgng-controller
+COPY --from=builder /app/go-controllers/bin/birdbgp-controller /usr/local/bin/birdbgp-controller

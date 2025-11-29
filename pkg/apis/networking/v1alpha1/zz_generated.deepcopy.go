@@ -34,7 +34,11 @@ func (in *BirdBGPProtocol) DeepCopyInto(out *BirdBGPProtocol) {
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
 	in.Spec.DeepCopyInto(&out.Spec)
-	in.Status.DeepCopyInto(&out.Status)
+	if in.Status != nil {
+		in, out := &in.Status, &out.Status
+		*out = new(BirdBGPProtocolStatus)
+		(*in).DeepCopyInto(*out)
+	}
 	return
 }
 
@@ -1325,7 +1329,11 @@ func (in *WireGuardInterfaceNG) DeepCopyInto(out *WireGuardInterfaceNG) {
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
 	in.Spec.DeepCopyInto(&out.Spec)
-	in.Status.DeepCopyInto(&out.Status)
+	if in.Status != nil {
+		in, out := &in.Status, &out.Status
+		*out = new(WireGuardInterfaceNGStatus)
+		(*in).DeepCopyInto(*out)
+	}
 	return
 }
 

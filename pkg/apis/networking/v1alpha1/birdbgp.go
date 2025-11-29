@@ -34,7 +34,7 @@ type BirdBGPProtocol struct {
 	Spec BirdBGPProtocolSpec `json:"spec"`
 
 	// +optional
-	Status BirdBGPProtocolStatus `json:"status"`
+	Status *BirdBGPProtocolStatus `json:"status,omitempty"`
 }
 
 // BirdBGPProtocolSpec is the spec for a BirdBGPProtocol resource

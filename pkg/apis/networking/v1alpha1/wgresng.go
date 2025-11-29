@@ -35,7 +35,7 @@ type WireGuardInterfaceNG struct {
 	Spec WireGuardInterfaceNGSpec `json:"spec"`
 
 	// +optional
-	Status WireGuardInterfaceNGStatus `json:"status"`
+	Status *WireGuardInterfaceNGStatus `json:"status,omitempty"`
 }
 
 type PrivateStuffRef struct {

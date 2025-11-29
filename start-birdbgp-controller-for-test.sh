@@ -14,10 +14,9 @@ docker run \
   -it \
   -v /root/.kube/config:/root/.kube/config:ro \
   -v "/etc/bird/ebgp_peers:/etc/bird/ebgp_peers" \
-  -v $scriptDir/bin/birdbgp-controller:/usr/local/bin/birdbgp-controller \
   -v bird-run-vol:/var/run/bird \
   --privileged \
-  debian:trixie \
+  ghcr.io/hsiaofongw/go-controllers:latest \
   birdbgp-controller \
     -v=4 \
     -kubeconfig=/root/.kube/config \

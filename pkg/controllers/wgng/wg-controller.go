@@ -483,7 +483,7 @@ func (c *Controller) updateWireGuardInterfaceStatus(ctx context.Context, wgObj *
 	}
 
 	// Update the status
-	wgObj.Status = networkingv1alpha1.WireGuardInterfaceNGStatus{
+	wgObj.Status = &networkingv1alpha1.WireGuardInterfaceNGStatus{
 		Nodename:    c.nodename,
 		Resource:    wgResStatus,
 		GeneratedAt: time.Now().Unix(),
