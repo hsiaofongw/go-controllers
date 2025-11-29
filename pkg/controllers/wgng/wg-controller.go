@@ -257,6 +257,10 @@ func NewController(
 				// simply ignore non-relevant events
 				return
 			}
+			if newWg.Spec.Node != controller.nodename {
+				// each controller only responsible for a single node
+				return
+			}
 
 			if (newWg.GetResourceVersion() == oldWg.GetResourceVersion()) || (newWg.GetGeneration() == oldWg.GetGeneration()) {
 				// status-only op
